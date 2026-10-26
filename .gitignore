@@ -1,0 +1,10 @@
+# Secrets - never commit these
+.env
+.env.*
+!.env.example
+
+# Dependencies and build output
+node_modules/
+dist/
+build/
+.expo/
