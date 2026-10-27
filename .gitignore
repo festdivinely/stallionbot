@@ -1,10 +1,21 @@
-# Secrets - never commit these (real values live in server/.env)
+# Secrets - never commit these (real values live in server/.env and apps/mobile/.env)
 .env
 .env.*
 !.env.example
+*.pem
+*.p12
+*.key
+*.jks
+*.keystore
+.vercel/
 
 # Dependencies and build output
 node_modules/
 dist/
 build/
+web-build/
 .expo/
+
+# Logs
+logs/
+*.log
