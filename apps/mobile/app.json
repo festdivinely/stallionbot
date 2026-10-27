@@ -44,6 +44,13 @@
         {
           "enforceContrast": false
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Quantum Robots needs access to your photos so you can choose a profile picture.",
+          "cameraPermission": "Quantum Robots needs your camera so you can take a profile picture."
+        }
       ]
     ],
     "experiments": {

@@ -32,8 +32,10 @@ export const csrfProtect = asyncHandler(async (req, res, next) => {
         return res.status(401).json({ message: "User not found" });
     }
 
-    const session = user.sessions.find(s => s.expires > new Date() && !s.used);
-    if (!session || session.csrfToken !== csrfToken) {
+    // Look for the active session that owns this token. (Taking just the FIRST active session
+    // rejected valid tokens whenever the user had more than one session, e.g. two devices.)
+    const session = user.sessions.find(s => s.expires > new Date() && !s.used && s.csrfToken === csrfToken);
+    if (!session) {
         console.warn("Invalid CSRF token", { userId: user._id, route: req.originalUrl });
         return res.status(403).json({ message: "Invalid CSRF token" });
     }
@@ -47,27 +49,15 @@ export const protect = asyncHandler(async (req, res, next) => {
         return res.status(401).json({ message: "Not authorized, no token provided" });
     }
 
+    // Only token problems belong in this try/catch. (It used to also wrap the database work below,
+    // so any crash there was reported as "token verification failed" with a 401.)
+    let decoded;
     try {
-        const decoded = jwt.verify(token, publicKey, {
+        decoded = jwt.verify(token, publicKey, {
             algorithms: ["RS256"],
             issuer: ISSUER,
             audience: AUDIENCE,
         });
-
-        const user = await Users.findById(decoded.userId).select("-password -sessions -emailVerifyToken");
-        if (!user) {
-            console.warn("User not found for token", { userId: decoded.userId });
-            return res.status(401).json({ message: "User not found" });
-        }
-        if (!user.isActive) {
-            console.warn("Inactive user attempted access", { userId: decoded.userId });
-            return res.status(403).json({ message: "User account is inactive" });
-        }
-
-        await user.cleanSessions();
-        req.user = user;
-        console.info("User authenticated", { userId: user.id, route: req.originalUrl });
-        next();
     } catch (error) {
         console.error("Token verification failed", { error: error.message });
         if (error.name === "TokenExpiredError") {
@@ -75,6 +65,23 @@ export const protect = asyncHandler(async (req, res, next) => {
         }
         return res.status(401).json({ message: "Not authorized, token verification failed" });
     }
+
+    const user = await Users.findById(decoded.userId).select("-password -sessions -emailVerifyToken");
+    if (!user) {
+        console.warn("User not found for token", { userId: decoded.userId });
+        return res.status(401).json({ message: "User not found" });
+    }
+    if (!user.isActive) {
+        console.warn("Inactive user attempted access", { userId: decoded.userId });
+        return res.status(403).json({ message: "User account is inactive" });
+    }
+
+    // No user.cleanSessions() here: the user is loaded WITHOUT sessions (see select above), so it
+    // crashed on every request and blocked every logged-in route. Sessions are cleaned at login,
+    // device verification and token refresh, where the full user is loaded.
+    req.user = user;
+    console.info("User authenticated", { userId: user.id, route: req.originalUrl });
+    next();
 });
 
 export const requireRole = (roles) => {

@@ -1,6 +1,9 @@
 import * as SecureStore from 'expo-secure-store';
 
 // ========== TOKEN MANAGEMENT ==========
+// Key names MUST match store/authStore.ts, which saves the tokens as 'refreshToken' and 'accessToken'.
+// (These used to be 'refresh_token' / 'access_token', so the token refresh never found the refresh
+// token and logged the user out as soon as the 15-minute access token expired.)
 
 /**
  * Save refresh token to secure storage
@@ -12,7 +15,7 @@ export const saveRefreshToken = async (token: string): Promise<boolean> => {
             return false;
         }
 
-        await SecureStore.setItemAsync('refresh_token', token);
+        await SecureStore.setItemAsync('refreshToken', token);
         console.log('Refresh token saved');
         return true;
     } catch (error: any) {
@@ -26,7 +29,7 @@ export const saveRefreshToken = async (token: string): Promise<boolean> => {
  */
 export const loadRefreshToken = async (): Promise<string | null> => {
     try {
-        const token = await SecureStore.getItemAsync('refresh_token');
+        const token = await SecureStore.getItemAsync('refreshToken');
 
         if (!token) {
             console.log('No refresh token found');
@@ -45,7 +48,7 @@ export const loadRefreshToken = async (): Promise<string | null> => {
  */
 export const deleteRefreshToken = async (): Promise<boolean> => {
     try {
-        await SecureStore.deleteItemAsync('refresh_token');
+        await SecureStore.deleteItemAsync('refreshToken');
         console.log('Refresh token deleted');
         return true;
     } catch (error: any) {
@@ -63,7 +66,7 @@ export const saveAccessToken = async (token: string): Promise<boolean> => {
             return false;
         }
 
-        await SecureStore.setItemAsync('access_token', token);
+        await SecureStore.setItemAsync('accessToken', token);
         console.log('Access token saved');
         return true;
     } catch (error: any) {
@@ -74,7 +77,7 @@ export const saveAccessToken = async (token: string): Promise<boolean> => {
 
 export const loadAccessToken = async (): Promise<string | null> => {
     try {
-        const token = await SecureStore.getItemAsync('access_token');
+        const token = await SecureStore.getItemAsync('accessToken');
         return token;
     } catch (error: any) {
         console.error('Failed to load access token:', error.message);
@@ -84,7 +87,7 @@ export const loadAccessToken = async (): Promise<string | null> => {
 
 export const deleteAccessToken = async (): Promise<boolean> => {
     try {
-        await SecureStore.deleteItemAsync('access_token');
+        await SecureStore.deleteItemAsync('accessToken');
         return true;
     } catch (error: any) {
         console.error('Failed to delete access token:', error.message);

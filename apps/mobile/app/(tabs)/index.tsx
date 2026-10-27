@@ -13,9 +13,8 @@ import {
 } from 'react-native';
 import React, { useState, useEffect, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-// expo-image can show SVG avatars (DiceBear); React Native's Image can't
-import { Image as ExpoImage } from 'expo-image';
 import { FONTS } from '../../constants/fonts';
+import UserAvatar from '../../components/UserAvatar';
 import { useRouter } from 'expo-router';
 import { useThemeStore } from '../../store/themeStore';
 import { useAuthStore } from '../../store/authStore';
@@ -151,15 +150,6 @@ export default function MainPage() {
         </TouchableOpacity>
     );
 
-    // Get profile image URL
-    const getProfileImageUrl = () => {
-        if (user?.profileImage) {
-            return user.profileImage;
-        }
-        // Fallback to DiceBear avatar based on username or email
-        const seed = user?.username || user?.email || 'user';
-        return `https://api.dicebear.com/9.x/avataaars/svg?seed=${seed}`;
-    };
 
     return (
         <View style={[
@@ -205,11 +195,7 @@ export default function MainPage() {
 
                     {/* Profile */}
                     <View style={localStyles.sidebarProfileContainer}>
-                        <ExpoImage
-                            source={{ uri: getProfileImageUrl() }}
-                            style={[localStyles.sidebarProfileImage, { borderColor: colors.primary, backgroundColor: colors.inputBackground }]}
-                            contentFit="cover"
-                        />
+                        <UserAvatar size={96} borderColor={colors.primary} backgroundColor={colors.inputBackground} />
                     </View>
                     <Text style={[localStyles.sidebarUsername, { color: colors.textPrimary }]}>
                         {user?.username || 'User'}
@@ -356,12 +342,6 @@ const localStyles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 14,
         marginTop: 8,
-    },
-    sidebarProfileImage: {
-        width: 96,
-        height: 96,
-        borderRadius: 48,
-        borderWidth: 2,
     },
     sidebarUsername: {
         fontSize: 18,

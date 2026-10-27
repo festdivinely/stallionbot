@@ -115,6 +115,7 @@ type AuthState = {
   verifyTOTPSetupLogin: (totpCode: string, usernameOrEmail: string, fingerprint: string) => Promise<AuthResponse>;
   verifyTOTPLogin: (code: string, usernameOrEmail: string, fingerprint: string) => Promise<AuthResponse>;
   disableTOTP: (password: string) => Promise<DisableTOTPResponse>;
+  uploadProfileImage: (imageDataUri: string) => Promise<{ success: boolean; message: string }>;
   generateFingerprint: () => Promise<FingerprintResult>;
   getFingerprintString: () => Promise<string>;
   setEmailVerificationSuccess: (message: string | null) => void;
@@ -1306,6 +1307,31 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         success: false,
         message: error.response?.data?.message || 'Failed to disable TOTP'
       };
+    }
+  },
+
+  // Sends a photo (base64 data URI) to the backend, which stores it on Cloudinary and saves the
+  // link on the user in the database. The returned link is put on the user right away, so every
+  // screen showing the avatar updates; after the next login it comes back from /api/auth/profile.
+  uploadProfileImage: async (imageDataUri: string) => {
+    try {
+      const { data } = await api.put('/api/auth/profile/image', { image: imageDataUri });
+      const currentUser = get().user;
+      if (currentUser && data.profileImage) {
+        set({ user: { ...currentUser, profileImage: data.profileImage } });
+      }
+      return { success: true, message: data.message || 'Profile picture updated' };
+    } catch (error: any) {
+      console.error('uploadProfileImage: Error', {
+        status: error.response?.status,
+        message: error.response?.data?.message,
+      });
+      // No response = the request was stopped in the app (e.g. "Session expired, please log in again")
+      const message = error.response?.status === 413
+        ? 'That photo is too large. Please choose a smaller one.'
+        : error.response?.data?.errors?.[0]?.msg || error.response?.data?.message
+          || (!error.response && error.message) || 'Could not upload your picture. Please try again.';
+      return { success: false, message };
     }
   }
 }));

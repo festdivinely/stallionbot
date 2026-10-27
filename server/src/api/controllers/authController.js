@@ -142,13 +142,16 @@ const validate = (validations) => [
     (req, res, next) => {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
+            // Drop the rejected values: they can be passwords (must never reach logs) or a
+            // multi-megabyte image. Field name and message are enough to explain the problem.
+            const safeErrors = errors.array().map(({ value, ...rest }) => rest);
             console.warn('Input validation failed', {
-                errors: errors.array(),
+                errors: safeErrors,
                 route: req.originalUrl,
                 ip: requestIp.getClientIp(req),
                 timestamp: new Date().toISOString(),
             });
-            return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+            return res.status(400).json({ message: 'Validation failed', errors: safeErrors });
         }
         next();
     },
@@ -2186,9 +2189,19 @@ export const resetPassword = [
     }),
 ];
 
+// Only real image data from the app is accepted: a base64 data URI of a JPEG, PNG or WebP.
+// (Passing anything else to Cloudinary would let it fetch any web address or store any file type.)
+const IMAGE_DATA_URI = /^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=\s]+$/;
+const MAX_IMAGE_BASE64_LENGTH = 6 * 1024 * 1024; // matches the 6 MB body limit for this route in app.js
+
 export const updateProfileImage = [
     setSecurityHeaders,
-    validate([body('image').notEmpty().withMessage('Image is required')]),
+    validate([
+        body('image')
+            .isString().withMessage('Image is required')
+            .isLength({ min: 1, max: MAX_IMAGE_BASE64_LENGTH }).withMessage('Image is too large')
+            .matches(IMAGE_DATA_URI).withMessage('Image must be a JPEG, PNG or WebP photo'),
+    ]),
     asyncHandler(async (req, res) => {
         const { image } = req.body;
         const userId = req.user?.id;
@@ -2213,11 +2226,15 @@ export const updateProfileImage = [
                 return res.status(403).json({ message: 'Only verified users can update profile image' });
             }
 
+            // One file per user: a new picture replaces the old one instead of piling up.
+            // Cloudinary crops it to a 512x512 square around the face, as JPEG/WebP for the phone.
             const uploaded = await cloudinary.uploader.upload(image, {
                 folder: 'profile_images',
-                public_id: `user_${user._id}_${Date.now()}`,
+                public_id: `user_${user._id}`,
                 overwrite: true,
-                resource_type: 'auto',
+                invalidate: true,
+                resource_type: 'image',
+                transformation: [{ width: 512, height: 512, crop: 'fill', gravity: 'face' }, { quality: 'auto', fetch_format: 'auto' }],
             });
 
             user.profileImage = uploaded.secure_url;

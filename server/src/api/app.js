@@ -103,7 +103,12 @@ app.use(
 // ==================
 // Body Parsing
 // ==================
-app.use(express.json({ limit: '1mb' }));
+// 1 MB everywhere, except the profile picture upload: a phone photo sent as base64 text is bigger
+const jsonDefault = express.json({ limit: '1mb' });
+const jsonProfileImage = express.json({ limit: '6mb' });
+app.use((req, res, next) =>
+    (req.path === '/api/auth/profile/image' ? jsonProfileImage : jsonDefault)(req, res, next)
+);
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // ==================
