@@ -100,14 +100,6 @@ const hslToRgb = (h: number, s: number, l: number) => {
     return { r: r + m, g: g + m, b: b + m };
 };
 
-const adjustLightnessHSL = (hex: string, percent: number) => {
-    const { r, g, b } = hexToRgb(hex);
-    const { h, s, l } = rgbToHsl(r, g, b);
-    const newL = clamp(l + percent / 100);
-    const rgb = hslToRgb(h, s, newL);
-    return rgbToHex(rgb.r, rgb.g, rgb.b);
-};
-
 const relativeLuminance = ({ r, g, b }: { r: number; g: number; b: number }) => {
     const f = (c: number) =>
         c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
@@ -120,43 +112,73 @@ const contrastRatio = (bg: string, fg: string) => {
     return (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
 };
 
-const getAccessibleTextColor = (background: string) => {
-    const black = '#000000';
-    const white = '#FFFFFF';
-    return contrastRatio(background, black) >= contrastRatio(background, white)
-        ? black
-        : white;
-};
 
 // --------------------------------------------------
 // Theme generation from custom color
 // --------------------------------------------------
-const generateThemeFromColor = (primary: string): Colors => {
-    const base = normalizeHex(primary);
-    const background = adjustLightnessHSL(base, 75);
-    const textPrimary = getAccessibleTextColor(background);
-    const textSecondary = adjustLightnessHSL(textPrimary, textPrimary === '#000000' ? 40 : -40);
+// "#abc" -> "#AABBCC" (the picker accepts 3-digit hex; the maths below needs 6 digits)
+const expandHex = (hex: string) => {
+    const clean = normalizeHex(hex).replace('#', '');
+    return clean.length === 3 ? `#${clean.split('').map((c) => c + c).join('')}` : `#${clean}`;
+};
+
+const hsl = (h: number, s: number, l: number) => {
+    const rgb = hslToRgb(((h % 360) + 360) % 360, clamp(s), clamp(l));
+    return rgbToHex(rgb.r, rgb.g, rgb.b).toUpperCase();
+};
+
+// Any colour the user picks becomes a polished theme in the same style as the presets:
+// a soft, barely tinted background, white cards, and the picked colour as the accent.
+// (Before, the whole background was tinted with the colour, which looked loud for strong
+// colours, and a very light pick, e.g. yellow, made white button text unreadable.)
+// Dark yellows and limes look muddy (olive), so before darkening, yellow leans to gold and
+// lime to green, the way designers usually handle these hues. Other hues are left alone.
+const nudgeHue = (h: number) => (h >= 45 && h < 62 ? 40 : h >= 62 && h < 95 ? 110 : h);
+
+const generateThemeFromColor = (picked: string): Colors => {
+    const { r, g, b } = hexToRgb(expandHex(picked));
+    const { s } = rgbToHsl(r, g, b);
+    let { l } = rgbToHsl(r, g, b);
+    // Only nudge colours that will actually be darkened (light enough to fail white-text contrast)
+    const rawHue = rgbToHsl(r, g, b).h;
+    const h = contrastRatio(expandHex(picked), '#FFFFFF') < 3 ? nudgeHue(rawHue) : rawHue;
+
+    // Keep the hue and saturation the user chose, but make the accent dark enough that white
+    // text on buttons is always readable (WCAG contrast >= 3, the minimum for bold button text).
+    l = Math.min(Math.max(l, 0.3), 0.6);
+    let primary = hsl(h, s, l);
+    while (contrastRatio(primary, '#FFFFFF') < 3 && l > 0.2) {
+        l -= 0.02;
+        primary = hsl(h, s, l);
+    }
+
+    // Neutral surfaces carry only a whisper of the hue, so every colour still looks clean
+    const tint = (maxSat: number) => Math.min(s, maxSat);
+    const textPrimary = hsl(h, tint(0.25), 0.16);
+    const textSecondary = hsl(h, tint(0.12), 0.42);
+    const inputBackground = hsl(h, tint(0.35), 0.94);
 
     return {
-        background: adjustLightnessHSL(base, 40),
+        background: hsl(h, tint(0.3), 0.965),
         cardBackground: '#FFFFFF',
-        border: adjustLightnessHSL(base, 20),
-        primary: base,
-        statusBar: adjustLightnessHSL(base, -10),
+        border: hsl(h, tint(0.2), 0.86),
+        primary,
+        statusBar: primary,
         textPrimary,
         textSecondary,
         textDark: textPrimary,
         black: '#000000',
         white: '#FFFFFF',
-        inputBackground: adjustLightnessHSL(base, 35),
+        inputBackground,
         placeholderText: textSecondary,
-        warning: '#D32F2F',
-        secondary: adjustLightnessHSL(base, -25),
-        success: '#388E3C',
+        warning: '#DC2626',
+        // A neighbouring hue, for highlights that should match but not repeat the accent
+        secondary: hsl(h + 30, s, l),
+        success: '#16A34A',
         modalOverlay: 'rgba(0,0,0,0.7)',
-        secondaryButton: adjustLightnessHSL(background, -5),
-        accent: adjustLightnessHSL(base, -35),
-        lightGray: adjustLightnessHSL(background, -8),
+        secondaryButton: inputBackground,
+        accent: hsl(h, s, Math.max(l - 0.12, 0.15)),
+        lightGray: hsl(h, tint(0.15), 0.93),
         shadow: 'rgba(0,0,0,0.12)',
     };
 };

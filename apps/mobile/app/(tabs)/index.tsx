@@ -9,10 +9,13 @@ import {
     Dimensions,
     Alert,
     Animated,
-    useWindowDimensions,
+    Modal,
 } from 'react-native';
 import React, { useState, useEffect, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+// expo-image can show SVG avatars (DiceBear); React Native's Image can't
+import { Image as ExpoImage } from 'expo-image';
+import { FONTS } from '../../constants/fonts';
 import { useRouter } from 'expo-router';
 import { useThemeStore } from '../../store/themeStore';
 import { useAuthStore } from '../../store/authStore';
@@ -42,6 +45,8 @@ interface Bot {
     createdAt: string;
 }
 
+const SIDEBAR_WIDTH = 290;
+
 export default function MainPage() {
     // Get colors and theme from store
     const { colors, theme } = useThemeStore();
@@ -56,12 +61,13 @@ export default function MainPage() {
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string>('');
     const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
+    // The sidebar's layer stays on screen until its closing animation has finished
+    const [sidebarMounted, setSidebarMounted] = useState<boolean>(false);
     const [selectedBot, setSelectedBot] = useState<Bot | null>(null);
-    const sidebarAnim = useRef(new Animated.Value(-300)).current;
+    const sidebarAnim = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
 
-    // Get safe area insets to account for bottom navigation bar
+    // Get safe area insets to account for the status bar and bottom navigation bar
     const insets = useSafeAreaInsets();
-    const { height: windowHeight } = useWindowDimensions();
 
     useEffect(() => {
         // app/_layout.tsx handles the redirect; just don't fetch while logged out
@@ -71,19 +77,23 @@ export default function MainPage() {
 
     useEffect(() => {
         if (isSidebarOpen) {
+            setSidebarMounted(true);
             Animated.timing(sidebarAnim, {
                 toValue: 0,
-                duration: 300,
+                duration: 280,
                 useNativeDriver: true,
             }).start();
         } else {
             Animated.timing(sidebarAnim, {
-                toValue: -300,
-                duration: 300,
+                toValue: -SIDEBAR_WIDTH,
+                duration: 240,
                 useNativeDriver: true,
-            }).start();
+            }).start(() => setSidebarMounted(false));
         }
     }, [isSidebarOpen]);
+
+    // Dim the screen behind the sidebar as it slides in
+    const overlayOpacity = sidebarAnim.interpolate({ inputRange: [-SIDEBAR_WIDTH, 0], outputRange: [0, 1] });
 
     const fetchBots = async () => {
         setIsLoading(true);
@@ -159,87 +169,89 @@ export default function MainPage() {
                 paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
             },
         ]}>
-            {/* Sidebar - Updated to account for bottom navigation bar */}
-            <Animated.View
-                style={[
-                    localStyles.sidebar,
-                    {
-                        backgroundColor: colors.cardBackground,
-                        transform: [{ translateX: sidebarAnim }],
-                        height: windowHeight, // Full window height
-                    }
-                ]}
+            {/* Sidebar, in its own top-level layer (Modal) so it covers everything: the tab bar,
+                the palette button and the system bars. Inside this screen, the tab bar (drawn by
+                the tabs layout) would always stay on top of it. */}
+            <Modal
+                visible={sidebarMounted}
+                transparent
+                animationType="none"
+                statusBarTranslucent
+                onRequestClose={closeSidebar}
             >
-                <TouchableOpacity
-                    style={localStyles.closeSidebarButton}
-                    onPress={closeSidebar}
-                >
-                    <Ionicons
-                        name="close"
-                        size={28}
-                        color={colors.primary}
-                    />
-                </TouchableOpacity>
+                <Animated.View style={[localStyles.overlay, { opacity: overlayOpacity }]}>
+                    <Pressable style={{ flex: 1 }} onPress={closeSidebar} accessibilityLabel="Close menu" />
+                </Animated.View>
 
-                {/* Profile Picture - ALWAYS SHOW CIRCULAR FRAME */}
-                <View style={localStyles.sidebarProfileContainer}>
-                    <Image
-                        source={{ uri: getProfileImageUrl() }}
-                        style={localStyles.sidebarProfileImage}
-                    />
-                </View>
-
-                {/* User Name */}
-                <Text style={[localStyles.sidebarUsername, { color: colors.textPrimary }]}>
-                    {user?.username || 'User'}
-                </Text>
-
-                {/* Settings Button at Bottom - Positioned above bottom navigation */}
-                <TouchableOpacity
+                <Animated.View
                     style={[
-                        localStyles.sidebarSettingsButton,
+                        localStyles.sidebar,
                         {
-                            bottom: insets.bottom, // Position above the bottom navigation bar
+                            backgroundColor: colors.cardBackground,
+                            transform: [{ translateX: sidebarAnim }],
+                            // The sidebar itself sits between the status bar and the navigation bar
+                            top: insets.top,
+                            bottom: insets.bottom,
                         }
                     ]}
-                    onPress={handleSettingsPress}
                 >
-                    <Ionicons
-                        name="settings-outline"
-                        size={20}
-                        color={colors.textPrimary}
-                        style={localStyles.settingsIcon}
-                    />
-                    <Text style={[localStyles.sidebarSettingsText, { color: colors.textPrimary }]}>
-                        Settings
+                    <TouchableOpacity
+                        style={[localStyles.closeSidebarButton, { backgroundColor: colors.inputBackground }]}
+                        onPress={closeSidebar}
+                        accessibilityLabel="Close menu"
+                    >
+                        <Ionicons name="close" size={22} color={colors.textPrimary} />
+                    </TouchableOpacity>
+
+                    {/* Profile */}
+                    <View style={localStyles.sidebarProfileContainer}>
+                        <ExpoImage
+                            source={{ uri: getProfileImageUrl() }}
+                            style={[localStyles.sidebarProfileImage, { borderColor: colors.primary, backgroundColor: colors.inputBackground }]}
+                            contentFit="cover"
+                        />
+                    </View>
+                    <Text style={[localStyles.sidebarUsername, { color: colors.textPrimary }]}>
+                        {user?.username || 'User'}
                     </Text>
-                </TouchableOpacity>
-            </Animated.View>
+                    {!!user?.email && (
+                        <Text style={[localStyles.sidebarEmail, { color: colors.textSecondary }]} numberOfLines={1}>
+                            {user.email}
+                        </Text>
+                    )}
 
-            {/* Overlay when sidebar is open - Updated with higher z-index */}
-            {isSidebarOpen && (
-                <Pressable
-                    style={[
-                        localStyles.overlay,
-                        {
-                            height: windowHeight, // Full window height
-                        }
-                    ]}
-                    onPress={closeSidebar}
-                />
-            )}
+                    {/* Pushes Settings to the bottom of the sidebar (which ends above the navigation bar) */}
+                    <View style={{ flex: 1 }} />
+
+                    <TouchableOpacity
+                        style={[localStyles.sidebarSettingsButton, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}
+                        onPress={handleSettingsPress}
+                        activeOpacity={0.8}
+                    >
+                        <Ionicons
+                            name="settings-outline"
+                            size={20}
+                            color={colors.primary}
+                            style={localStyles.settingsIcon}
+                        />
+                        <Text style={[localStyles.sidebarSettingsText, { color: colors.textPrimary }]}>
+                            Settings
+                        </Text>
+                        <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+                    </TouchableOpacity>
+                </Animated.View>
+            </Modal>
 
             {/* Header */}
             <View style={styles.header}>
-                {/* Profile Picture Button - ALWAYS SHOW CIRCULAR FRAME */}
+                {/* Hamburger menu: opens the sidebar */}
                 <TouchableOpacity
-                    style={localStyles.profileButton}
+                    style={[localStyles.menuButton, { backgroundColor: colors.cardBackground, borderColor: colors.border }]}
                     onPress={toggleSidebar}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open menu"
                 >
-                    <Image
-                        source={{ uri: getProfileImageUrl() }}
-                        style={localStyles.profileImage}
-                    />
+                    <Ionicons name="menu" size={24} color={colors.textPrimary} />
                 </TouchableOpacity>
 
                 <Text style={[styles.title, { color: colors.textPrimary }]}>
@@ -317,80 +329,84 @@ export default function MainPage() {
 
 const localStyles = StyleSheet.create({
     sidebar: {
+        // top/bottom are set from the safe-area insets, so it never goes under the system bars
         position: 'absolute',
-        top: 0, // Removed the StatusBar.currentHeight padding to start immediately below status bar
         left: 0,
-        width: 280,
-        zIndex: 2000, // Increased z-index to be on top of other elements
-        paddingTop: 60,
+        width: SIDEBAR_WIDTH,
         paddingHorizontal: 20,
+        paddingTop: 16,
+        paddingBottom: 24,
+        borderTopRightRadius: 24,
+        borderBottomRightRadius: 24,
+        shadowColor: '#000',
+        shadowOffset: { width: 6, height: 0 },
+        shadowOpacity: 0.2,
+        shadowRadius: 16,
+        elevation: 16,
     },
     closeSidebarButton: {
-        position: 'absolute',
-        top: 20,
-        right: 20,
+        alignSelf: 'flex-end',
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     sidebarProfileContainer: {
         alignItems: 'center',
-        marginBottom: 16,
-        marginTop: 20, // Added margin top to account for status bar area
+        marginBottom: 14,
+        marginTop: 8,
     },
     sidebarProfileImage: {
-        width: 100,
-        height: 100,
-        borderRadius: 50,
+        width: 96,
+        height: 96,
+        borderRadius: 48,
         borderWidth: 2,
-        borderColor: '#666',
-        backgroundColor: '#f0f0f0',
     },
     sidebarUsername: {
         fontSize: 18,
-        fontWeight: '600',
+        fontFamily: FONTS.semibold,
         textAlign: 'center',
-        marginBottom: 20,
+    },
+    sidebarEmail: {
+        fontSize: 13,
+        fontFamily: FONTS.regular,
+        textAlign: 'center',
+        marginTop: 2,
     },
     sidebarSettingsButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        position: 'absolute',
-        left: 20,
-        right: 20,
-        paddingVertical: 16,
-        paddingHorizontal: 20,
-        borderTopWidth: 1,
-        borderTopColor: 'rgba(0,0,0,0.1)',
-        backgroundColor: 'rgba(255,255,255,0.95)', // Semi-transparent background for better visibility
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        borderRadius: 14,
+        borderWidth: 1,
     },
     settingsIcon: {
         marginRight: 12,
     },
     sidebarSettingsText: {
-        fontSize: 18,
-        fontWeight: '500',
+        flex: 1,
+        fontSize: 16,
+        fontFamily: FONTS.medium,
     },
     overlay: {
         position: 'absolute',
         top: 0,
         left: 0,
         right: 0,
+        bottom: 0,
         backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        zIndex: 1999, // Just below sidebar but above everything else
     },
-    profileButton: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        overflow: 'hidden',
-        marginLeft: 8,
-        backgroundColor: '#f0f0f0',
+    menuButton: {
+        width: 42,
+        height: 42,
+        borderRadius: 12,
         borderWidth: 1,
-        borderColor: '#ddd',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginLeft: 8,
         marginTop: 8,
-    },
-    profileImage: {
-        width: '100%',
-        height: '100%',
-        borderRadius: 20,
     },
     headerRight: {
         width: 40,

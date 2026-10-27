@@ -4,10 +4,7 @@ import {
     TextInput,
     TouchableOpacity,
     ActivityIndicator,
-    KeyboardAvoidingView,
-    Platform,
     Alert,
-    ScrollView,
 } from 'react-native';
 import React, { useState, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +13,7 @@ import { useThemeStore } from '../../store/themeStore';
 import { THEME_COLORS } from '../../constants/colors';
 import createStyles from '../../assets/styles/resetPassword.styles';
 import { useAuthStore } from '../../store/authStore';
+import KeyboardSafeScroll from '../../components/KeyboardSafeScroll';
 
 export default function ResetPassword() {
     const theme = useThemeStore((state) => state.theme);
@@ -100,15 +98,7 @@ export default function ResetPassword() {
 
     return (
         <View style={styles.root}>
-            <KeyboardAvoidingView
-                style={{ flex: 1 }}
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            >
-                <ScrollView
-                    contentContainerStyle={styles.scroll}
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator={false}
-                >
+            <KeyboardSafeScroll contentContainerStyle={styles.scroll}>
                     <View style={styles.card}>
                         <View style={styles.header}>
                             <TouchableOpacity
@@ -174,8 +164,7 @@ export default function ResetPassword() {
                             )}
                         </TouchableOpacity>
                     </View>
-                </ScrollView>
-            </KeyboardAvoidingView>
+            </KeyboardSafeScroll>
         </View>
     );
 }

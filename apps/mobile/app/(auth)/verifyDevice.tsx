@@ -4,8 +4,6 @@ import {
     TextInput,
     TouchableOpacity,
     ActivityIndicator,
-    KeyboardAvoidingView,
-    Platform,
     Alert,
 } from 'react-native';
 import React, { useState, useMemo, useEffect } from 'react';
@@ -17,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { THEME_COLORS } from '../../constants/colors';
 import createStyles from '../../assets/styles/verifyDevice.styles';
 import { useAuthStore } from '../../store/authStore';
+import KeyboardSafeScroll from '../../components/KeyboardSafeScroll';
 
 export default function VerifyDevice() {
     const theme = useThemeStore((state) => state.theme);
@@ -34,6 +33,9 @@ export default function VerifyDevice() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
 
+    // Only when the screen opens: catches arriving here without a login in progress.
+    // (It used to re-run whenever pendingUsernameOrEmail changed, and a successful verification
+    // clears that value, so this error popped up right after every successful verification.)
     useEffect(() => {
         if (!pendingUsernameOrEmail) {
             Alert.alert(
@@ -42,7 +44,7 @@ export default function VerifyDevice() {
                 [{ text: 'OK', onPress: () => router.replace('/(auth)') }]
             );
         }
-    }, [pendingUsernameOrEmail]);
+    }, []);
 
     const handlePaste = async () => {
         try {
@@ -96,10 +98,7 @@ export default function VerifyDevice() {
     };
 
     return (
-        <KeyboardAvoidingView
-            style={{ flex: 1 }}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
+        <KeyboardSafeScroll style={{ backgroundColor: COLORS.background }}>
             <View
                 style={[
                     styles.container,
@@ -191,6 +190,6 @@ export default function VerifyDevice() {
                     </View>
                 </View>
             </View>
-        </KeyboardAvoidingView>
+        </KeyboardSafeScroll>
     );
 }

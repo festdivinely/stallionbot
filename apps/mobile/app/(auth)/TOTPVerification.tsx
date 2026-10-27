@@ -5,11 +5,8 @@ import {
   TextInput,
   TouchableOpacity,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   ActivityIndicator,
   Image,
-  ScrollView,
   Modal,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -19,6 +16,7 @@ import { THEME_COLORS, Theme } from '../../constants/colors';
 import createStyles from '../../assets/styles/totpVerification.styles';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../store/authStore';
+import KeyboardSafeScroll from '../../components/KeyboardSafeScroll';
 
 interface ThemeStore {
   theme: Theme;
@@ -342,17 +340,10 @@ export default function TOTPVerification() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+    <KeyboardSafeScroll
+      style={[styles.container, { backgroundColor: COLORS.background }]}
+      contentContainerStyle={styles.scrollViewContent}
     >
-      <View style={[styles.container, { backgroundColor: COLORS.background }]}>
-        <ScrollView
-          contentContainerStyle={styles.scrollViewContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
           {/* Back Button */}
           <TouchableOpacity
             style={[styles.backButton, { top: insets.top + 16 }]}
@@ -611,8 +602,6 @@ export default function TOTPVerification() {
               </View>
             </View>
           </View>
-        </ScrollView>
-      </View>
-    </KeyboardAvoidingView>
+    </KeyboardSafeScroll>
   );
 }

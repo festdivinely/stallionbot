@@ -7,6 +7,18 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import SafeScreen from '../components/SafeScreen';
 import { useAuthStore } from '../store/authStore';
 import ThemeStatusBar from '../components/themeStatusBar';
+import ThemeSelector from '../components/themeSelector';
+import {
+  useFonts,
+  Poppins_400Regular,
+  Poppins_500Medium,
+  Poppins_600SemiBold,
+  Poppins_700Bold,
+} from '@expo-google-fonts/poppins';
+import { installThemedAlert, ThemedAlertHost } from '../components/ThemedAlert';
+
+// Every Alert.alert(...) in the app now shows the themed dialog instead of the plain system box
+installThemedAlert();
 
 export default function RootLayout() {
   const { isAuthenticated, initializeAuth } = useAuthStore();
@@ -17,13 +29,23 @@ export default function RootLayout() {
   // isLoading, because isLoading also turns on during login/sign-up requests.
   const [isReady, setIsReady] = useState(false);
 
+  // App font (see constants/fonts.ts). If loading fails we carry on with the system font.
+  const [fontsLoaded, fontError] = useFonts({ Poppins_400Regular, Poppins_500Medium, Poppins_600SemiBold, Poppins_700Bold });
+  const fontsReady = fontsLoaded || !!fontError;
+
   // Initialize auth once on mount
   useEffect(() => {
     const init = async () => {
       console.log('RootLayout: Starting auth initialization');
-      await initializeAuth();
-      setIsReady(true);
-      console.log('RootLayout: Auth initialization complete');
+      try {
+        await initializeAuth();
+        console.log('RootLayout: Auth initialization complete');
+      } catch (error) {
+        // Continue as logged out rather than leaving the loading spinner up forever
+        console.error('RootLayout: Auth initialization failed', error);
+      } finally {
+        setIsReady(true);
+      }
     };
 
     init();
@@ -56,7 +78,6 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <ThemeStatusBar />
         <SafeScreen>
           <Stack
             screenOptions={{
@@ -69,12 +90,22 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" />
           </Stack>
 
-          {!isReady && (
+          {/* Covers the screens until the saved login is checked and the font has loaded */}
+          {(!isReady || !fontsReady) && (
             <View style={styles.loadingOverlay}>
               <ActivityIndicator size="large" color="#0000ff" />
             </View>
           )}
         </SafeScreen>
+
+        {/* One palette button (theme colours) for every screen, draggable anywhere on screen */}
+        {isReady && fontsReady && <ThemeSelector draggable />}
+
+        {/* Shows Alert.alert messages (login, verification, errors...) in the app's theme */}
+        <ThemedAlertHost />
+
+        {/* Last, so the coloured strips behind the status and navigation bars are drawn on top */}
+        <ThemeStatusBar />
       </GestureHandlerRootView>
     </SafeAreaProvider>
   );

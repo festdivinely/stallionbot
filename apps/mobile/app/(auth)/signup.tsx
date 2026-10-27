@@ -4,9 +4,8 @@ import {
     TextInput,
     TouchableOpacity,
     ActivityIndicator,
-    KeyboardAvoidingView,
-    Platform,
     Alert,
+    StyleSheet,
 } from 'react-native';
 import React, { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,13 +13,17 @@ import { Link, useRouter } from 'expo-router';
 import { useThemeStore } from '../../store/themeStore';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import createStyles from '../../assets/styles/signup.styles';
-import ThemeSelector from '../../components/themeSelector';
 import { useAuthStore } from '../../store/authStore';
 import { validateUsernameFrontend, validatePasswordFrontend, validateEmailFrontend } from '../../utils/validation';
+import RobotIllustration from '../../components/robotFace';
+import { BackgroundDecor, Chip } from '../../components/welcome/WelcomeArt';
+import { getWelcomePalette, PRICE_UP } from '../../components/welcome/welcomePalette';
+import KeyboardSafeScroll from '../../components/KeyboardSafeScroll';
 
 export default function Signup() {
     // Get colors and theme from store (theme can be 'custom')
     const { colors, theme } = useThemeStore();
+    const palette = getWelcomePalette(colors);
 
     // Use safe theme for styles (convert 'custom' to 'retro')
     const themeForStyles = theme === 'custom' ? 'retro' : theme;
@@ -130,16 +133,22 @@ export default function Signup() {
     };
 
     return (
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <KeyboardSafeScroll style={{ backgroundColor: colors.background }}>
             <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-                {/* FIX: Add absolute positioning for ThemeSelector - same as Login component */}
-                <View style={{ position: 'absolute', top: -10, left: -10, zIndex: 1000 }}>
-                    <ThemeSelector />
-                </View>
+                {/* Soft background shapes, like the welcome screen */}
+                <BackgroundDecor palette={palette} variant="rules" />
                 <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
                     <View style={styles.header}>
+                        {/* Small robot badge, same artwork as the welcome screen */}
+                        <View style={[localStyles.robotBadge, { borderColor: colors.primary, backgroundColor: colors.inputBackground }]}>
+                            <RobotIllustration width={60} height={60} />
+                        </View>
                         <Text style={[styles.title, { color: colors.primary }]}>Quantum Robots</Text>
                         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Efficient Trading At Its Best</Text>
+                        <View style={localStyles.chipRow}>
+                            <Chip icon="wallet-outline" label="Free demo account" iconColor={colors.primary} palette={palette} />
+                            <Chip icon="lock-closed-outline" label="2FA security" iconColor={PRICE_UP} palette={palette} />
+                        </View>
                     </View>
 
                     <View style={styles.formContainer}>
@@ -277,6 +286,24 @@ export default function Signup() {
                     </View>
                 </View>
             </View>
-        </KeyboardAvoidingView>
+        </KeyboardSafeScroll>
     );
 }
+
+const localStyles = StyleSheet.create({
+    robotBadge: {
+        width: 72,
+        height: 72,
+        borderRadius: 36,
+        borderWidth: 2,
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden',
+        marginBottom: 10,
+    },
+    chipRow: {
+        flexDirection: 'row',
+        gap: 8,
+        marginTop: 12,
+    },
+});

@@ -4,8 +4,6 @@ import {
     TextInput,
     TouchableOpacity,
     ActivityIndicator,
-    KeyboardAvoidingView,
-    Platform,
     Alert,
 } from 'react-native';
 import React, { useMemo, useState } from 'react';
@@ -16,6 +14,7 @@ import { useThemeStore } from '../../store/themeStore';
 import { THEME_COLORS } from '../../constants/colors';
 import createStyles from '../../assets/styles/passwordResetCode.styles';
 import api from '../../apis/authApi';
+import KeyboardSafeScroll from '../../components/KeyboardSafeScroll';
 
 export default function ResetPasswordCode() {
     const theme = useThemeStore((state) => state.theme);
@@ -118,11 +117,9 @@ export default function ResetPasswordCode() {
         }
     };
 
+    // root has flex: 1, which would stop the content from scrolling, so it grows instead
     return (
-        <KeyboardAvoidingView
-            style={styles.root}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
+        <KeyboardSafeScroll style={{ backgroundColor: COLORS.background }} contentContainerStyle={[styles.root, { flex: 0, flexGrow: 1 }]}>
             <View style={styles.card}>
                 <View style={styles.header}>
                     <TouchableOpacity
@@ -213,6 +210,6 @@ export default function ResetPasswordCode() {
                     </TouchableOpacity>
                 </View>
             </View>
-        </KeyboardAvoidingView>
+        </KeyboardSafeScroll>
     );
 }

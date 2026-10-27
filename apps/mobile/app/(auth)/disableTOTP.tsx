@@ -2,6 +2,7 @@
 import { useAuthStore } from '../../store/authStore';
 import { useState } from 'react';
 import { View, Text, TextInput, Button, Alert } from 'react-native';
+import KeyboardSafeScroll from '../../components/KeyboardSafeScroll';
 
 export default function SecuritySettings() {
     const { disableTOTP, user } = useAuthStore();
@@ -33,7 +34,7 @@ export default function SecuritySettings() {
     };
 
     return (
-        <View>
+        <KeyboardSafeScroll>
             <Text>Two-Factor Authentication: {user?.twoFactorEnabled ? 'Enabled' : 'Disabled'}</Text>
 
             {user?.twoFactorEnabled && (
@@ -51,6 +52,6 @@ export default function SecuritySettings() {
                     />
                 </View>
             )}
-        </View>
+        </KeyboardSafeScroll>
     );
 }

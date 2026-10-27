@@ -4,8 +4,6 @@ import {
     TextInput,
     TouchableOpacity,
     ActivityIndicator,
-    KeyboardAvoidingView,
-    Platform,
     Alert,
 } from 'react-native';
 import React, { useState, useEffect } from 'react';
@@ -16,13 +14,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import createStyles from '../../assets/styles/login.styles';
 import { useAuthStore } from '../../store/authStore';
 import { validateEmailFrontend } from '../../utils/validation';
-import ThemeSelector from '../../components/themeSelector';
 import api from '../../apis/authApi';
-import RobotIllustration from '../../components/robotFace';
+import { BackgroundDecor, HeroRobot } from '../../components/welcome/WelcomeArt';
+import { getWelcomePalette } from '../../components/welcome/welcomePalette';
+import KeyboardSafeScroll from '../../components/KeyboardSafeScroll';
 
 export default function Login() {
     const { colors } = useThemeStore();
     const styles = createStyles(colors);
+    const palette = getWelcomePalette(colors);
     const [usernameOrEmail, setUsernameOrEmail] = useState<string>('');
     const [password, setPassword] = useState<string>('');
     const [showPassword, setShowPassword] = useState<boolean>(false);
@@ -169,22 +169,17 @@ export default function Login() {
 
     return (
         <View style={{ flex: 1, backgroundColor: colors.background }}>
-            <KeyboardAvoidingView
-                style={{ flex: 1 }}
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            >
-                <View style={[styles.container, { paddingTop: insets.top }]}>
-                    {/* Theme Selector - Fixed position */}
-                    <View style={{ position: 'absolute', top: -10, left: -10, zIndex: 1000 }}>
-                        <ThemeSelector />
-                    </View>
+            {/* Soft shapes and candlesticks behind everything, like the welcome screen */}
+            <BackgroundDecor palette={palette} variant="market" />
+            <KeyboardSafeScroll>
+                {/* Transparent, so the background shapes behind it show through */}
+                <View style={[styles.container, { paddingTop: insets.top, backgroundColor: 'transparent' }]}>
 
-                    {/* Replace Image with SVG Component */}
-                    <View style={styles.topIllustration}>
-                        <RobotIllustration
-                            width={300}
-                            height={300}
-                        />
+                    {/* Same animated robot as the welcome screen (orbit ring + floating chips) */}
+                    <View style={[styles.topIllustration, { marginBottom: 40 }]}>
+                        <HeroRobot palette={palette} />
+                        <Text style={[styles.title, { marginTop: 22, marginBottom: 2 }]}>Welcome back</Text>
+                        <Text style={styles.subtitle}>Log in to manage your bots</Text>
                     </View>
 
                     <View style={styles.card}>
@@ -296,7 +291,7 @@ export default function Login() {
                         </View>
                     </View>
                 </View>
-            </KeyboardAvoidingView>
+            </KeyboardSafeScroll>
         </View>
     );
 }

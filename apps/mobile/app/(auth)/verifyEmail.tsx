@@ -4,8 +4,6 @@ import {
     TextInput,
     TouchableOpacity,
     ActivityIndicator,
-    KeyboardAvoidingView,
-    Platform,
     Alert,
 } from 'react-native';
 import React, { useState, useEffect } from 'react';
@@ -15,6 +13,7 @@ import { useRouter } from 'expo-router';
 import { useThemeStore } from '../../store/themeStore';
 import createStyles from '../../assets/styles/verifyEmail.styles';
 import { useAuthStore } from '../../store/authStore';
+import KeyboardSafeScroll from '../../components/KeyboardSafeScroll';
 
 export default function VerifyEmail() {
     // Get colors and theme from store
@@ -121,7 +120,7 @@ export default function VerifyEmail() {
     }
 
     return (
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <KeyboardSafeScroll style={{ backgroundColor: colors.background }}>
             <View style={[styles.container, { backgroundColor: colors.background }]}>
                 <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
                     <View style={styles.header}>
@@ -202,6 +201,6 @@ export default function VerifyEmail() {
                     </View>
                 </View>
             </View>
-        </KeyboardAvoidingView>
+        </KeyboardSafeScroll>
     );
 }

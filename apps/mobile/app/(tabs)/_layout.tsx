@@ -1,9 +1,10 @@
 import { Tabs } from 'expo-router';
+import type { ComponentProps } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../store/themeStore';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { THEME_COLORS } from '../../constants/colors';
-import { StyleSheet, View, Text, Image } from 'react-native';
+import { StyleSheet, View, Text, Pressable } from 'react-native';
 
 /**
  * IMPORTANT:
@@ -12,50 +13,80 @@ import { StyleSheet, View, Text, Image } from 'react-native';
  */
 type ThemeFromStore = ReturnType<typeof useThemeStore.getState>['theme'];
 
-interface TabIconProps {
-    focused: boolean;
-    iconName: keyof typeof Ionicons.glyphMap;
-    title: string;
-    themeColors: any;
-}
-
-const TabIcon = ({ focused, iconName, title, themeColors }: TabIconProps) => {
-    if (focused) {
-        return (
-            <View style={[
-                styles.focusedTab,
-                {
-                    backgroundColor: themeColors.primary,
-                    minWidth: 112,
-                }
-            ]}>
-                <Ionicons
-                    name={iconName}
-                    size={20}
-                    color={themeColors.white}
-                    style={styles.icon}
-                />
-                <Text style={[styles.focusedText, { color: themeColors.white }]}>
-                    {title}
-                </Text>
-            </View>
-        );
-    }
-
-    return (
-        <View style={styles.unfocusedTab}>
-            <Ionicons
-                name={iconName}
-                size={20}
-                color={themeColors.textSecondary}
-            />
-        </View>
-    );
+// Icon and label for each tab screen (file name in app/(tabs) -> what the bar shows)
+const TAB_META: Record<string, { icon: keyof typeof Ionicons.glyphMap; title: string }> = {
+    index: { icon: 'home-outline', title: 'Home' },
+    explore: { icon: 'compass-outline', title: 'Explore' },
+    settings: { icon: 'settings-outline', title: 'Settings' },
+    search: { icon: 'search-outline', title: 'Search' },
 };
 
-export default function TabsLayout() {
+const BAR_HEIGHT = 52;
+const BAR_BORDER = 1;
+
+// Whatever the installed expo-router passes to a custom tab bar (state, emitter, navigateToTab...)
+type TabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>>[0];
+
+/**
+ * Our own tab bar instead of React Navigation's default one. The default bar puts each icon in a
+ * fixed-size box with its own padding, so the active pill could never exactly fill the bar
+ * (it left a gap above the bottom border). Here the pill is exactly the bar's inner height.
+ */
+function FloatingTabBar({ state, emitter, navigateToTab, colors }: TabBarProps & { colors: any }) {
     const insets = useSafeAreaInsets();
 
+    return (
+        <View
+            style={[
+                styles.tabBar,
+                {
+                    backgroundColor: colors.background,
+                    borderColor: colors.border,
+                    bottom: 36 + insets.bottom,
+                },
+            ]}
+        >
+            {state.routes.map((route, index) => {
+                const meta = TAB_META[route.name];
+                if (!meta) return null;
+                const focused = state.index === index;
+
+                const onPress = () => {
+                    // Same events as the default bar, so screens can still listen for tab presses
+                    const event = emitter.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+                    if (!focused && !event.defaultPrevented) navigateToTab(route.key);
+                };
+                const onLongPress = () => emitter.emit({ type: 'tabLongPress', target: route.key });
+
+                return (
+                    <Pressable
+                        key={route.key}
+                        onPress={onPress}
+                        onLongPress={onLongPress}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: focused }}
+                        accessibilityLabel={meta.title}
+                        // The active tab is wider so its name fits next to the icon
+                        style={[styles.tabItem, { flex: focused ? 1.9 : 1 }]}
+                    >
+                        {focused ? (
+                            <View style={[styles.focusedPill, { backgroundColor: colors.primary }]}>
+                                <Ionicons name={meta.icon} size={20} color={colors.white} style={styles.icon} />
+                                <Text style={[styles.focusedText, { color: colors.white }]} numberOfLines={1}>
+                                    {meta.title}
+                                </Text>
+                            </View>
+                        ) : (
+                            <Ionicons name={meta.icon} size={20} color={colors.textSecondary} />
+                        )}
+                    </Pressable>
+                );
+            })}
+        </View>
+    );
+}
+
+export default function TabsLayout() {
     const theme = useThemeStore((state) => state.theme as ThemeFromStore);
 
     /**
@@ -71,110 +102,49 @@ export default function TabsLayout() {
     // the Tabs navigator and cause "route names changed ... not handled by any navigator".
     return (
         <Tabs
-            screenOptions={{
-                headerShown: false,
-                tabBarShowLabel: false,
-                tabBarItemStyle: styles.tabBarItem,
-                tabBarStyle: [
-                    styles.tabBar,
-                    {
-                        backgroundColor: COLORS.background,
-                        borderColor: COLORS.border,
-                        marginBottom: 36 + insets.bottom,
-                        height: 52,
-                    }
-                ],
-            }}
+            screenOptions={{ headerShown: false }}
+            tabBar={(props) => <FloatingTabBar {...props} colors={COLORS} />}
         >
-            <Tabs.Screen
-                name="index"
-                options={{
-                    tabBarIcon: ({ focused }) => (
-                        <TabIcon
-                            focused={focused}
-                            iconName="home-outline"
-                            title="Home"
-                            themeColors={COLORS}
-                        />
-                    ),
-                }}
-            />
-            <Tabs.Screen
-                name="explore"
-                options={{
-                    tabBarIcon: ({ focused }) => (
-                        <TabIcon
-                            focused={focused}
-                            iconName="compass-outline"
-                            title="Explore"
-                            themeColors={COLORS}
-                        />
-                    ),
-                }}
-            />
-            <Tabs.Screen
-                name="settings"
-                options={{
-                    tabBarIcon: ({ focused }) => (
-                        <TabIcon
-                            focused={focused}
-                            iconName="settings-outline"
-                            title="Settings"
-                            themeColors={COLORS}
-                        />
-                    ),
-                }}
-            />
-            <Tabs.Screen
-                name="search"
-                options={{
-                    tabBarIcon: ({ focused }) => (
-                        <TabIcon
-                            focused={focused}
-                            iconName="search-outline"
-                            title="Search"
-                            themeColors={COLORS}
-                        />
-                    ),
-                }}
-            />
+            <Tabs.Screen name="index" />
+            <Tabs.Screen name="explore" />
+            <Tabs.Screen name="settings" />
+            <Tabs.Screen name="search" />
         </Tabs>
     );
 }
 
 const styles = StyleSheet.create({
     tabBar: {
-        borderRadius: 50,
-        marginHorizontal: 20,
-        position: "absolute",
-        overflow: "hidden",
-        borderWidth: 1,
-    },
-    tabBarItem: {
-        width: '100%',
-        height: '100%',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    focusedTab: {
-        flex: 1,
-        flexGrow: 1,
-        width: '100%',
-        minHeight: 48,
-        marginTop: 4,
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderRadius: 50,
+        position: 'absolute',
+        left: 20,
+        right: 20,
+        height: BAR_HEIGHT,
+        borderRadius: BAR_HEIGHT / 2,
+        borderWidth: BAR_BORDER,
         flexDirection: 'row',
-        paddingHorizontal: 16,
+        overflow: 'hidden',
+        // No padding: the active pill fills the whole inside of the bar, top border to bottom border
+        padding: 0,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.12,
+        shadowRadius: 12,
+        elevation: 8,
     },
-    unfocusedTab: {
-        width: '100%',
+    tabItem: {
         height: '100%',
-        justifyContent: 'center',
         alignItems: 'center',
-        marginTop: 4,
-        borderRadius: 50,
+        justifyContent: 'center',
+    },
+    focusedPill: {
+        // Exactly the bar's inner height, so there is no gap above the bottom border
+        height: '100%',
+        alignSelf: 'stretch',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: BAR_HEIGHT / 2,
+        paddingHorizontal: 14,
     },
     icon: {
         marginRight: 8,
