@@ -123,6 +123,14 @@ export const resendVerifyEmailLimiter = rateLimit({
     },
 });
 
+// Body fields never written to the logs: secrets (passwords, tokens, codes) and big blobs (images).
+// Matched by name, so new fields like "newPassword" or "refreshToken" are covered automatically.
+const SECRET_FIELD = /pass|token|secret|code|otp|totp|image/i;
+const redactBody = (body) =>
+    Object.fromEntries(
+        Object.entries(body ?? {}).map(([key, value]) => [key, SECRET_FIELD.test(key) && value ? "[REDACTED]" : value])
+    );
+
 // === ENHANCED REQUEST LOGGER (replaces httpLogger + old logRequest) ===
 export const logRequest = (req, res, next) => {
     const start = Date.now();
@@ -139,13 +147,7 @@ export const logRequest = (req, res, next) => {
             userAgent: req.headers["user-agent"] || "unknown",
             userId: req.user?.id || "unauthenticated",
             body: (req.method === "POST" || req.method === "PUT" || req.method === "PATCH")
-                ? {
-                    ...req.body,
-                    password: req.body.password ? "[REDACTED]" : undefined,
-                    totp: req.body.totp ? "[REDACTED]" : undefined,
-                    otp: req.body.otp ? "[REDACTED]" : undefined,
-                    token: req.body.token ? "[HIDDEN]" : undefined,
-                }
+                ? redactBody(req.body)
                 : undefined,
             timestamp: new Date().toISOString(),
         });

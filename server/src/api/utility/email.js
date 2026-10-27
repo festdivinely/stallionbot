@@ -28,9 +28,9 @@ export async function sendVerificationEmail(receiverEmail, verificationLink, tok
       throw new Error('Email sender or password not set');
     }
 
-    const subject = 'Verify Your Email - Trade Divinely Bot';
+    const subject = 'Verify Your Email - Stallion Trader';
     const plainBody = `
-      Welcome to Trade Divinely Bot
+      Welcome to Stallion Trader
 
       To verify your email, tap and hold the following token to select and copy it, then paste it into the Verify Email screen in the app:
 
@@ -51,7 +51,7 @@ export async function sendVerificationEmail(receiverEmail, verificationLink, tok
                   <td align="center" 
                     style="background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); 
                       padding:30px; color:#ffffff; font-size:24px; font-weight:bold;">
-                    Trade Divinely Bot
+                    Stallion Trader
                   </td>
                 </tr>
 
@@ -69,7 +69,7 @@ export async function sendVerificationEmail(receiverEmail, verificationLink, tok
                     </p>
 
                     <p>
-                      This token expires in <b>15 minutes</b>. Open the Trade Divinely Bot app and go to the Verify Email screen to paste it.
+                      This token expires in <b>15 minutes</b>. Open the Stallion Trader app and go to the Verify Email screen to paste it.
                       If you didn’t sign up, ignore this email.
                     </p>
                   </td>
@@ -78,7 +78,7 @@ export async function sendVerificationEmail(receiverEmail, verificationLink, tok
                 <tr>
                   <td align="center" 
                     style="background:#f4f7fb; padding:20px; font-size:13px; color:#888888;">
-                    &copy; ${new Date().getFullYear()} Trade Divinely Bot. All rights reserved.<br/>
+                    &copy; ${new Date().getFullYear()} Stallion Trader. All rights reserved.<br/>
                     Need help? <a href="mailto:support@tradedivinely.com" style="color:#4facfe; text-decoration:none;">Contact Support</a>
                   </td>
                 </tr>

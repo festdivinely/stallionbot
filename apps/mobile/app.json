@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "trading-app-new",
+    "name": "Stallion Trader",
     "slug": "trading-app-new",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -48,8 +48,14 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Quantum Robots needs access to your photos so you can choose a profile picture.",
-          "cameraPermission": "Quantum Robots needs your camera so you can take a profile picture."
+          "photosPermission": "Stallion Trader needs access to your photos so you can choose a profile picture.",
+          "cameraPermission": "Stallion Trader needs your camera so you can take a profile picture."
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Stallion Trader uses Face ID so you can log in with one look."
         }
       ]
     ],

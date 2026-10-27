@@ -16,6 +16,7 @@ import { THEME_COLORS } from '../../constants/colors';
 import createStyles from '../../assets/styles/verifyDevice.styles';
 import { useAuthStore } from '../../store/authStore';
 import KeyboardSafeScroll from '../../components/KeyboardSafeScroll';
+import ClipboardCodeBanner from '../../components/ClipboardCodeBanner';
 
 export default function VerifyDevice() {
     const theme = useThemeStore((state) => state.theme);
@@ -60,14 +61,16 @@ export default function VerifyDevice() {
         }
     };
 
-    const handleVerify = async () => {
-        if (!/^\d{6}$/.test(code)) {
+    // `pasted` = a code from the clipboard banner, submitted straight away
+    const handleVerify = async (pasted?: string) => {
+        const value = pasted ?? code;
+        if (!/^\d{6}$/.test(value)) {
             setError('Please enter a valid 6-digit verification code.');
             return;
         }
 
         setError('');
-        const result = await verifyDevice(code, pendingUsernameOrEmail || '');
+        const result = await verifyDevice(value, pendingUsernameOrEmail || '');
         if (result.success) {
             Alert.alert('Success', result.message || 'Device verified!', [
                 { text: 'Continue', onPress: () => router.replace('/(tabs)') },
@@ -108,7 +111,7 @@ export default function VerifyDevice() {
                 <View style={[styles.card, { backgroundColor: COLORS.cardBackground }]}>
                     <View style={styles.header}>
                         <Text style={[styles.title, { color: COLORS.primary }]}>
-                            Quantum Robots
+                            Stallion Trader
                         </Text>
                         <Text style={[styles.subtitle, { color: COLORS.textSecondary }]}>
                             Device Verification
@@ -116,6 +119,12 @@ export default function VerifyDevice() {
                     </View>
 
                     <View style={styles.formContainer}>
+                        <ClipboardCodeBanner
+                            onUse={(c) => {
+                                setCode(c);
+                                handleVerify(c);
+                            }}
+                        />
                         <View style={styles.inputGroup}>
                             <Text style={[styles.label, { color: COLORS.textPrimary }]}>
                                 Verification Code
@@ -143,6 +152,8 @@ export default function VerifyDevice() {
                                     }}
                                     keyboardType="number-pad"
                                     maxLength={6}
+                                    autoComplete="one-time-code"
+                                    textContentType="oneTimeCode"
                                 />
                                 <TouchableOpacity onPress={handlePaste} style={styles.eyeIconContainer}>
                                     <Ionicons
@@ -158,7 +169,7 @@ export default function VerifyDevice() {
 
                         <TouchableOpacity
                             style={[styles.button, { backgroundColor: COLORS.primary }]}
-                            onPress={handleVerify}
+                            onPress={() => handleVerify()}
                             disabled={isLoading}
                         >
                             {isLoading ? (

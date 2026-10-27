@@ -14,6 +14,7 @@ import { useThemeStore } from '../../store/themeStore';
 import createStyles from '../../assets/styles/verifyEmail.styles';
 import { useAuthStore } from '../../store/authStore';
 import KeyboardSafeScroll from '../../components/KeyboardSafeScroll';
+import ClipboardCodeBanner from '../../components/ClipboardCodeBanner';
 
 export default function VerifyEmail() {
     // Get colors and theme from store
@@ -60,19 +61,21 @@ export default function VerifyEmail() {
         }
     };
 
-    const handleVerify = async () => {
-        if (!code.trim()) {
+    // `pasted` = a code from the clipboard banner, submitted straight away
+    const handleVerify = async (pasted?: string) => {
+        const value = pasted ?? code;
+        if (!value.trim()) {
             setError('Please enter or paste the verification code.');
             return;
         }
 
-        if (!/^\d{6}$/.test(code)) {
+        if (!/^\d{6}$/.test(value)) {
             setError('Please enter a valid 6-digit verification code.');
             return;
         }
 
         setError('');
-        const result = await verifyEmail(code);
+        const result = await verifyEmail(value);
 
         if (result.success) {
             setCode('');
@@ -131,6 +134,12 @@ export default function VerifyEmail() {
                     </View>
 
                     <View style={styles.formContainer}>
+                        <ClipboardCodeBanner
+                            onUse={(c) => {
+                                setCode(c);
+                                handleVerify(c);
+                            }}
+                        />
                         <View style={styles.inputGroup}>
                             <Text style={[styles.label, { color: colors.textPrimary }]}>Verification Code</Text>
                             <View style={[
@@ -160,6 +169,8 @@ export default function VerifyEmail() {
                                     autoCapitalize="none"
                                     keyboardType="number-pad"
                                     maxLength={6}
+                                    autoComplete="one-time-code"
+                                    textContentType="oneTimeCode"
                                 />
                                 <TouchableOpacity onPress={handlePaste} style={styles.eyeIconContainer}>
                                     <Ionicons
@@ -177,7 +188,7 @@ export default function VerifyEmail() {
 
                         <TouchableOpacity
                             style={[styles.button, { backgroundColor: colors.primary }]}
-                            onPress={handleVerify}
+                            onPress={() => handleVerify()}
                             disabled={isLoading}
                         >
                             {isLoading ? (

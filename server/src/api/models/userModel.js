@@ -39,9 +39,17 @@ const SessionSchema = new mongoose.Schema({
     ip: { type: String },
     country: { type: String },
     used: { type: Boolean, default: false },
+    // When this session's refresh token was exchanged, and for which new one. A used session is
+    // kept for REFRESH_GRACE_MS so a refresh whose reply got lost can be answered again.
+    usedAt: { type: Date },
+    rotatedTo: { type: String },
     csrfToken: { type: String },
     createdAt: { type: Date, default: Date.now },
 }, { _id: false });
+
+// How long a just-used refresh token may come back (reply lost in the network, server restarted
+// mid-request) and still get its replacement instead of being treated as token theft.
+export const REFRESH_GRACE_MS = 2 * 60 * 1000;
 
 const DeviceSchema = new mongoose.Schema({
     fingerprint: {
@@ -597,7 +605,11 @@ UserSchema.methods.verifyPassword = async function (candidatePassword) {
 
 UserSchema.methods.cleanSessions = async function () {
     try {
-        this.sessions = this.sessions.filter(s => s.expires > new Date() && !s.used);
+        const now = Date.now();
+        // Used sessions stay for the grace period only (see REFRESH_GRACE_MS)
+        this.sessions = this.sessions.filter(
+            (s) => s.expires > now && (!s.used || (s.usedAt && now - s.usedAt.getTime() < REFRESH_GRACE_MS))
+        );
         await this.save();
         console.info("Sessions cleaned", { userId: this._id.toString(), email: this.email });
     } catch (error) {

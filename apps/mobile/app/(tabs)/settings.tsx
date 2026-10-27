@@ -11,7 +11,7 @@ import {
     Modal,
     Pressable,
 } from 'react-native';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -22,6 +22,7 @@ import { useThemeStore } from '../../store/themeStore';
 import { useAuthStore } from '../../store/authStore';
 import UserAvatar from '../../components/UserAvatar';
 import { FONTS } from '../../constants/fonts';
+import { allowQuickLoginOffer, canUseBiometrics, disableQuickLogin, getQuickLoginAccount } from '../../utils/quickLogin';
 
 interface SettingsSection {
     id: string;
@@ -65,7 +66,35 @@ export default function SettingsPage() {
 
     const [notifications, setNotifications] = useState(true);
     const [darkMode, setDarkMode] = useState(false);
+    // Fingerprint login (utils/quickLogin.ts): on when an account is saved behind the fingerprint
     const [biometricLogin, setBiometricLogin] = useState(false);
+    useEffect(() => {
+        getQuickLoginAccount().then((account) => setBiometricLogin(!!account));
+    }, []);
+
+    const toggleBiometricLogin = async () => {
+        if (biometricLogin) {
+            Alert.alert('Turn off fingerprint login?', 'Your saved login will be removed from this phone.', [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Turn off',
+                    style: 'destructive',
+                    onPress: async () => {
+                        await disableQuickLogin();
+                        setBiometricLogin(false);
+                    },
+                },
+            ]);
+            return;
+        }
+        if (!(await canUseBiometrics())) {
+            Alert.alert('No fingerprint set up', 'Add a fingerprint in your phone settings first, then come back here.');
+            return;
+        }
+        // Saving the login needs the password once, so it is set up at the next password login
+        await allowQuickLoginOffer();
+        Alert.alert('Fingerprint login', 'Next time you log in with your password, tap "Turn on" when asked. After that, one touch logs you in.');
+    };
     const [isUploading, setIsUploading] = useState(false);
     // The photo the user picked, waiting for them to press Save in the preview
     const [picked, setPicked] = useState<PickedPhoto | null>(null);
@@ -163,7 +192,7 @@ export default function SettingsPage() {
             items: [
                 { id: 'notifications', title: 'Push Notifications', subtitle: 'Receive alerts and updates', icon: 'notifications-outline', type: 'toggle', value: notifications, action: () => setNotifications(!notifications) },
                 { id: 'darkMode', title: 'Dark Mode', subtitle: 'Use dark theme across the app', icon: 'moon-outline', type: 'toggle', value: darkMode, action: () => setDarkMode(!darkMode) },
-                { id: 'biometric', title: 'Biometric Login', subtitle: 'Use fingerprint or face ID', icon: 'finger-print-outline', type: 'toggle', value: biometricLogin, action: () => setBiometricLogin(!biometricLogin) },
+                { id: 'biometric', title: 'Fingerprint Login', subtitle: biometricLogin ? 'On: log in with one touch' : 'Log in with your fingerprint', icon: 'finger-print-outline', type: 'toggle', value: biometricLogin, action: toggleBiometricLogin },
                 { id: 'language', title: 'Language', subtitle: 'English (US)', icon: 'language-outline', type: 'navigation', action: () => console.log('Navigate to language') },
             ],
         },
@@ -319,8 +348,8 @@ export default function SettingsPage() {
                 </TouchableOpacity>
 
                 <View style={styles.footer}>
-                    <Text style={[styles.footerText, { color: colors.textSecondary }]}>Quantum Robots v1.0.0</Text>
-                    <Text style={[styles.footerText, { color: colors.textSecondary }]}>© 2024 All rights reserved</Text>
+                    <Text style={[styles.footerText, { color: colors.textSecondary }]}>Stallion Trader v1.0.0</Text>
+                    <Text style={[styles.footerText, { color: colors.textSecondary }]}>© 2026 All rights reserved</Text>
                 </View>
             </ScrollView>
 

@@ -141,7 +141,7 @@ app.get("/", (req, res) => {
     res.send(`
         <html>
         <head>
-            <title>Trade Divinely Bot API</title>
+            <title>Stallion Trader API</title>
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
                 body { 
@@ -191,7 +191,7 @@ app.get("/", (req, res) => {
         </head>
         <body>
             <div class="container">
-                <h1>TRADE DIVINELY BOT API</h1>
+                <h1>STALLION TRADER API</h1>
                 <div class="status">🚀 Serverless backend is <strong>ALIVE</strong></div>
                 <p><strong>${new Date().toISOString()}</strong></p>
                 <div class="endpoints">

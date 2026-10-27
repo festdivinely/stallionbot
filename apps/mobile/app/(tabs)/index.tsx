@@ -1,192 +1,146 @@
+// Home: the user's bots, grouped by the broker they trade on, plus the list of brokers.
+// Picking a broker (here or in the sidebar) opens that broker's own screens, e.g. app/deriv.
 import {
     View,
     Text,
-    FlatList,
+    ScrollView,
     TouchableOpacity,
     ActivityIndicator,
-    Image,
     StyleSheet,
-    Dimensions,
     Alert,
     Animated,
     Modal,
+    RefreshControl,
+    Pressable,
 } from 'react-native';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { FONTS } from '../../constants/fonts';
-import UserAvatar from '../../components/UserAvatar';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { FONTS } from '../../constants/fonts';
+import { BROKERS, brokerName, type Broker } from '../../constants/brokers';
+import UserAvatar from '../../components/UserAvatar';
+import BrokerBadge from '../../components/BrokerBadge';
 import { useThemeStore } from '../../store/themeStore';
 import { useAuthStore } from '../../store/authStore';
-import createStyles from '../../assets/styles/home.styles';
 import api from '../../apis/authApi';
-import BotDetailsModal from '../../components/BotDetailsModal';
-import { StatusBar, Platform } from 'react-native';
-import { Pressable } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context'; // Correct import
 
-interface Bot {
+// One of the user's own bots, as GET /api/bots/user returns it (only the fields shown here)
+interface UserBot {
     id: string;
-    name: string;
-    market: string;
-    description: string;
-    image: string;
-    efficiency: number;
-    risk: string;
-    isFree: boolean;
-    price: number;
-    platform: string;
-    creator: {
-        id: string;
-        username: string;
-        display_name: string;
-    };
-    createdAt: string;
+    status: string;
+    template: { name: string; market: string; platform: string };
 }
 
 const SIDEBAR_WIDTH = 290;
+// Floating tab bar: 52 high, 36 above the navigation bar (see app/(tabs)/_layout.tsx)
+const TAB_BAR_SPACE = 36 + 52 + 24;
 
 export default function MainPage() {
-    // Get colors and theme from store
-    const { colors, theme } = useThemeStore();
-
-    // Use safe theme for styles (convert 'custom' to 'retro')
-    const themeForStyles = theme === 'custom' ? 'retro' : theme;
-    const styles = createStyles(themeForStyles);
-
-    const { logout, isAuthenticated, user } = useAuthStore();
+    const { colors } = useThemeStore();
+    const { isAuthenticated, user } = useAuthStore();
     const router = useRouter();
-    const [bots, setBots] = useState<Bot[]>([]);
-    const [isLoading, setIsLoading] = useState<boolean>(false);
-    const [error, setError] = useState<string>('');
-    const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
+    const insets = useSafeAreaInsets();
+
+    const [bots, setBots] = useState<UserBot[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [error, setError] = useState('');
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     // The sidebar's layer stays on screen until its closing animation has finished
-    const [sidebarMounted, setSidebarMounted] = useState<boolean>(false);
-    const [selectedBot, setSelectedBot] = useState<Bot | null>(null);
+    const [sidebarMounted, setSidebarMounted] = useState(false);
     const sidebarAnim = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
 
-    // Get safe area insets to account for the status bar and bottom navigation bar
-    const insets = useSafeAreaInsets();
+    const fetchBots = useCallback(async () => {
+        setError('');
+        try {
+            const response = await api.get('/api/bots/user', { params: { page: 1, limit: 50 } });
+            setBots(response.data.bots || []);
+        } catch (err: any) {
+            // 404 = no bots yet, which is a normal empty state
+            if (err.response?.status === 404) setBots([]);
+            else setError('Could not load your bots. Check your connection and try again.');
+        }
+    }, []);
 
     useEffect(() => {
         // app/_layout.tsx handles the redirect; just don't fetch while logged out
         if (!isAuthenticated) return;
-        fetchBots();
-    }, [isAuthenticated]);
+        setIsLoading(true);
+        fetchBots().finally(() => setIsLoading(false));
+    }, [isAuthenticated, fetchBots]);
+
+    const onRefresh = async () => {
+        setIsRefreshing(true);
+        await fetchBots();
+        setIsRefreshing(false);
+    };
 
     useEffect(() => {
         if (isSidebarOpen) {
             setSidebarMounted(true);
-            Animated.timing(sidebarAnim, {
-                toValue: 0,
-                duration: 280,
-                useNativeDriver: true,
-            }).start();
+            Animated.timing(sidebarAnim, { toValue: 0, duration: 280, useNativeDriver: true }).start();
         } else {
-            Animated.timing(sidebarAnim, {
-                toValue: -SIDEBAR_WIDTH,
-                duration: 240,
-                useNativeDriver: true,
-            }).start(() => setSidebarMounted(false));
+            Animated.timing(sidebarAnim, { toValue: -SIDEBAR_WIDTH, duration: 240, useNativeDriver: true }).start(() =>
+                setSidebarMounted(false)
+            );
         }
     }, [isSidebarOpen]);
 
     // Dim the screen behind the sidebar as it slides in
     const overlayOpacity = sidebarAnim.interpolate({ inputRange: [-SIDEBAR_WIDTH, 0], outputRange: [0, 1] });
+    const closeSidebar = () => setIsSidebarOpen(false);
 
-    const fetchBots = async () => {
-        setIsLoading(true);
-        setError('');
-        try {
-            const response = await api.get('/api/bots', {
-                params: { page: 1, limit: 20 },
-            });
-            const fetchedBots = response.data.bots || [];
-            setBots(fetchedBots);
-        } catch (err: any) {
-            // Don't set error for 404 - just show empty state
-            if (err.response?.status === 404) {
-                setBots([]);
-            } else {
-                setError(err.message || 'Failed to fetch bots');
-                setBots([]);
-            }
-        } finally {
-            setIsLoading(false);
+    const openBroker = (broker: Broker) => {
+        setIsSidebarOpen(false);
+        if (broker.status === 'available' && broker.route) {
+            router.push(broker.route);
+        } else {
+            Alert.alert(broker.name, `${broker.name} is coming soon. We'll add it once its trading API is ready.`);
         }
     };
 
-    const toggleSidebar = () => {
-        setIsSidebarOpen(!isSidebarOpen);
-    };
+    // Bots grouped by broker, in the order brokers are listed (unknown brokers last)
+    const groups = Object.entries(
+        bots.reduce<Record<string, UserBot[]>>((acc, bot) => {
+            const id = bot.template?.platform || 'other';
+            (acc[id] ||= []).push(bot);
+            return acc;
+        }, {})
+    ).sort(([a], [b]) => {
+        const rank = (id: string) => {
+            const i = BROKERS.findIndex((x) => x.id === id);
+            return i === -1 ? BROKERS.length : i;
+        };
+        return rank(a) - rank(b);
+    });
 
-    const closeSidebar = () => {
-        setIsSidebarOpen(false);
-    };
-
-    const handleSettingsPress = () => {
-        setIsSidebarOpen(false);
-        router.push('/settings'); // Navigate to settings page
-    };
-
-    const renderBotCard = ({ item }: { item: Bot }) => (
-        <TouchableOpacity
-            style={[styles.botCard, { backgroundColor: colors.cardBackground }]}
-            onPress={() => setSelectedBot(item)}
-        >
-            <Image
-                source={{ uri: item.image || 'https://via.placeholder.com/150' }}
-                style={styles.botImage}
-            />
-            <Text style={[styles.botName, { color: colors.textPrimary }]}>
-                {item.name}
-            </Text>
-            <Text style={[styles.botMarket, { color: colors.textSecondary }]}>
-                {item.market}
-            </Text>
-            <Text style={[styles.botPrice, { color: colors.primary }]}>
-                {item.isFree ? 'Free' : `$${item.price}`}
-            </Text>
-        </TouchableOpacity>
-    );
-
+    const firstName = user?.username || 'trader';
 
     return (
-        <View style={[
-            styles.container,
-            {
-                backgroundColor: colors.background,
-                paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
-            },
-        ]}>
+        // No top padding here: SafeScreen (app/_layout.tsx) already keeps everything below the status bar
+        <View style={[styles.container, { backgroundColor: colors.background }]}>
             {/* Sidebar, in its own top-level layer (Modal) so it covers everything: the tab bar,
-                the palette button and the system bars. Inside this screen, the tab bar (drawn by
-                the tabs layout) would always stay on top of it. */}
-            <Modal
-                visible={sidebarMounted}
-                transparent
-                animationType="none"
-                statusBarTranslucent
-                onRequestClose={closeSidebar}
-            >
-                <Animated.View style={[localStyles.overlay, { opacity: overlayOpacity }]}>
+                the palette button and the system bars. */}
+            <Modal visible={sidebarMounted} transparent animationType="none" statusBarTranslucent onRequestClose={closeSidebar}>
+                <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
                     <Pressable style={{ flex: 1 }} onPress={closeSidebar} accessibilityLabel="Close menu" />
                 </Animated.View>
 
                 <Animated.View
                     style={[
-                        localStyles.sidebar,
+                        styles.sidebar,
                         {
                             backgroundColor: colors.cardBackground,
                             transform: [{ translateX: sidebarAnim }],
                             // The sidebar itself sits between the status bar and the navigation bar
                             top: insets.top,
                             bottom: insets.bottom,
-                        }
+                        },
                     ]}
                 >
                     <TouchableOpacity
-                        style={[localStyles.closeSidebarButton, { backgroundColor: colors.inputBackground }]}
+                        style={[styles.closeSidebarButton, { backgroundColor: colors.inputBackground }]}
                         onPress={closeSidebar}
                         accessibilityLabel="Close menu"
                     >
@@ -194,35 +148,54 @@ export default function MainPage() {
                     </TouchableOpacity>
 
                     {/* Profile */}
-                    <View style={localStyles.sidebarProfileContainer}>
-                        <UserAvatar size={96} borderColor={colors.primary} backgroundColor={colors.inputBackground} />
+                    <View style={styles.sidebarProfile}>
+                        <UserAvatar size={72} borderColor={colors.primary} backgroundColor={colors.inputBackground} />
+                        <Text style={[styles.sidebarUsername, { color: colors.textPrimary }]}>{user?.username || 'User'}</Text>
+                        {!!user?.email && (
+                            <Text style={[styles.sidebarEmail, { color: colors.textSecondary }]} numberOfLines={1}>
+                                {user.email}
+                            </Text>
+                        )}
                     </View>
-                    <Text style={[localStyles.sidebarUsername, { color: colors.textPrimary }]}>
-                        {user?.username || 'User'}
-                    </Text>
-                    {!!user?.email && (
-                        <Text style={[localStyles.sidebarEmail, { color: colors.textSecondary }]} numberOfLines={1}>
-                            {user.email}
-                        </Text>
-                    )}
 
-                    {/* Pushes Settings to the bottom of the sidebar (which ends above the navigation bar) */}
-                    <View style={{ flex: 1 }} />
+                    {/* Brokers: each opens its own screens */}
+                    <Text style={[styles.sidebarSection, { color: colors.textSecondary }]}>Brokers</Text>
+                    <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+                        {BROKERS.map((b) => (
+                            <TouchableOpacity
+                                key={b.id}
+                                style={[styles.sidebarRow, { borderColor: colors.border }]}
+                                onPress={() => openBroker(b)}
+                                activeOpacity={0.8}
+                            >
+                                <BrokerBadge broker={b} size={36} />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[styles.sidebarRowTitle, { color: colors.textPrimary }]}>{b.name}</Text>
+                                    <Text style={[styles.sidebarRowSub, { color: colors.textSecondary }]} numberOfLines={1}>
+                                        {b.tagline}
+                                    </Text>
+                                </View>
+                                {b.status === 'available' ? (
+                                    <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+                                ) : (
+                                    <Text style={[styles.soonPill, { color: colors.textSecondary, backgroundColor: colors.inputBackground }]}>
+                                        Soon
+                                    </Text>
+                                )}
+                            </TouchableOpacity>
+                        ))}
+                    </ScrollView>
 
                     <TouchableOpacity
-                        style={[localStyles.sidebarSettingsButton, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}
-                        onPress={handleSettingsPress}
+                        style={[styles.sidebarSettingsButton, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}
+                        onPress={() => {
+                            setIsSidebarOpen(false);
+                            router.push('/settings');
+                        }}
                         activeOpacity={0.8}
                     >
-                        <Ionicons
-                            name="settings-outline"
-                            size={20}
-                            color={colors.primary}
-                            style={localStyles.settingsIcon}
-                        />
-                        <Text style={[localStyles.sidebarSettingsText, { color: colors.textPrimary }]}>
-                            Settings
-                        </Text>
+                        <Ionicons name="settings-outline" size={20} color={colors.primary} style={{ marginRight: 12 }} />
+                        <Text style={[styles.sidebarSettingsText, { color: colors.textPrimary }]}>Settings</Text>
                         <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
                     </TouchableOpacity>
                 </Animated.View>
@@ -230,98 +203,165 @@ export default function MainPage() {
 
             {/* Header */}
             <View style={styles.header}>
-                {/* Hamburger menu: opens the sidebar */}
                 <TouchableOpacity
-                    style={[localStyles.menuButton, { backgroundColor: colors.cardBackground, borderColor: colors.border }]}
-                    onPress={toggleSidebar}
+                    style={[styles.menuButton, { backgroundColor: colors.cardBackground, borderColor: colors.border }]}
+                    onPress={() => setIsSidebarOpen(true)}
                     accessibilityRole="button"
                     accessibilityLabel="Open menu"
                 >
                     <Ionicons name="menu" size={24} color={colors.textPrimary} />
                 </TouchableOpacity>
-
-                <Text style={[styles.title, { color: colors.textPrimary }]}>
-                    Quantum Robots
-                </Text>
-
-                {/* Empty view for balance */}
-                <View style={localStyles.headerRight} />
+                <Text style={[styles.title, { color: colors.textPrimary }]}>Stallion Trader</Text>
+                <View style={{ width: 42 }} />
             </View>
 
-            <Pressable
-                style={{ flex: 1 }}
-                onPress={closeSidebar}
+            <ScrollView
+                contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}
+                refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[colors.primary]} tintColor={colors.primary} />}
+                showsVerticalScrollIndicator={false}
             >
+                <Text style={[styles.greeting, { color: colors.textSecondary }]}>Welcome back, {firstName}</Text>
+
+                {/* My bots */}
+                <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>My bots</Text>
                 {isLoading ? (
-                    <View style={styles.loadingContainer}>
-                        <ActivityIndicator size="large" color={colors.primary} />
+                    <View style={[styles.card, styles.centerCard, { backgroundColor: colors.cardBackground, borderColor: colors.border }]}>
+                        <ActivityIndicator color={colors.primary} />
                     </View>
                 ) : error ? (
-                    <View style={styles.errorContainer}>
-                        <Text style={[styles.errorText, { color: colors.textPrimary }]}>
-                            {error}
-                        </Text>
-                        <TouchableOpacity
-                            style={[styles.retryButton, { backgroundColor: colors.primary }]}
-                            onPress={fetchBots}
-                        >
-                            <Text style={[styles.buttonText, { color: colors.white }]}>
-                                Retry
-                            </Text>
+                    <View style={[styles.card, styles.centerCard, { backgroundColor: colors.cardBackground, borderColor: colors.border }]}>
+                        <Ionicons name="cloud-offline-outline" size={36} color={colors.textSecondary} />
+                        <Text style={[styles.emptyBody, { color: colors.textSecondary }]}>{error}</Text>
+                        <TouchableOpacity style={[styles.primaryButton, { backgroundColor: colors.primary }]} onPress={onRefresh}>
+                            <Text style={[styles.primaryButtonText, { color: colors.white }]}>Try again</Text>
                         </TouchableOpacity>
                     </View>
-                ) : bots.length === 0 ? (
-                    // Show empty state when no bots
-                    <View style={localStyles.emptyContainer}>
-                        <Ionicons
-                            name="construct-outline"
-                            size={60}
-                            color={colors.textSecondary}
-                        />
-                        <Text style={[localStyles.emptyText, { color: colors.textSecondary }]}>
-                            No bots available
+                ) : groups.length === 0 ? (
+                    <View style={[styles.card, styles.centerCard, { backgroundColor: colors.cardBackground, borderColor: colors.border }]}>
+                        <View style={[styles.emptyIcon, { backgroundColor: colors.inputBackground }]}>
+                            <Ionicons name="hardware-chip-outline" size={30} color={colors.primary} />
+                        </View>
+                        <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No bots found</Text>
+                        <Text style={[styles.emptyBody, { color: colors.textSecondary }]}>
+                            You haven't built a bot yet. Pick a broker below to build your first one or to trade manually.
                         </Text>
-                        <TouchableOpacity
-                            style={[localStyles.retryButton, { backgroundColor: colors.primary }]}
-                            onPress={fetchBots}
-                        >
-                            <Text style={[localStyles.retryButtonText, { color: colors.white }]}>
-                                Refresh
-                            </Text>
-                        </TouchableOpacity>
                     </View>
                 ) : (
-                    <FlatList
-                        data={bots}
-                        renderItem={renderBotCard}
-                        keyExtractor={(item) => item.id}
-                        numColumns={2}
-                        columnWrapperStyle={styles.botList}
-                        contentContainerStyle={styles.listContainer}
-                    />
+                    groups.map(([brokerId, list]) => (
+                        <View key={brokerId} style={{ marginBottom: 14 }}>
+                            <Text style={[styles.groupTitle, { color: colors.textSecondary }]}>
+                                {brokerName(brokerId)} · {list.length} {list.length === 1 ? 'bot' : 'bots'}
+                            </Text>
+                            {list.map((bot) => (
+                                <BotRow key={bot.id} bot={bot} />
+                            ))}
+                        </View>
+                    ))
                 )}
-            </Pressable>
-            {selectedBot && (
-                <BotDetailsModal
-                    bot={selectedBot}
-                    isVisible={!!selectedBot}
-                    onClose={() => setSelectedBot(null)}
-                    theme={themeForStyles} // Pass safe theme to modal
-                />
-            )}
+
+                {/* Brokers */}
+                <Text style={[styles.sectionTitle, { color: colors.textPrimary, marginTop: 10 }]}>Brokers</Text>
+                {BROKERS.map((b) => (
+                    <TouchableOpacity
+                        key={b.id}
+                        style={[styles.card, styles.brokerCard, { backgroundColor: colors.cardBackground, borderColor: colors.border }]}
+                        onPress={() => openBroker(b)}
+                        activeOpacity={0.85}
+                    >
+                        <BrokerBadge broker={b} size={46} />
+                        <View style={{ flex: 1 }}>
+                            <Text style={[styles.brokerName, { color: colors.textPrimary }]}>{b.name}</Text>
+                            <Text style={[styles.brokerSub, { color: colors.textSecondary }]}>
+                                {b.status === 'available' ? 'Build bots · Trade manually' : b.tagline}
+                            </Text>
+                        </View>
+                        {b.status === 'available' ? (
+                            <View style={[styles.openPill, { backgroundColor: colors.primary }]}>
+                                <Text style={[styles.openPillText, { color: colors.white }]}>Open</Text>
+                            </View>
+                        ) : (
+                            <Text style={[styles.soonPill, { color: colors.textSecondary, backgroundColor: colors.inputBackground }]}>Soon</Text>
+                        )}
+                    </TouchableOpacity>
+                ))}
+            </ScrollView>
         </View>
     );
 }
 
-const localStyles = StyleSheet.create({
+function BotRow({ bot }: { bot: UserBot }) {
+    const { colors } = useThemeStore();
+    const running = bot.status === 'running';
+    return (
+        <View style={[styles.card, styles.botRow, { backgroundColor: colors.cardBackground, borderColor: colors.border }]}>
+            <View style={[styles.botIcon, { backgroundColor: colors.inputBackground }]}>
+                <Ionicons name="hardware-chip-outline" size={20} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+                <Text style={[styles.botName, { color: colors.textPrimary }]} numberOfLines={1}>
+                    {bot.template?.name || 'Bot'}
+                </Text>
+                <Text style={[styles.brokerSub, { color: colors.textSecondary }]}>{bot.template?.market}</Text>
+            </View>
+            <View style={styles.statusRow}>
+                <View style={[styles.statusDot, { backgroundColor: running ? '#16A34A' : colors.border }]} />
+                <Text style={[styles.statusText, { color: running ? '#16A34A' : colors.textSecondary }]}>
+                    {running ? 'Running' : 'Stopped'}
+                </Text>
+            </View>
+        </View>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: { flex: 1 },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8 },
+    title: { fontSize: 20, fontFamily: FONTS.bold },
+    menuButton: { width: 42, height: 42, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+    scroll: { paddingHorizontal: 16, paddingTop: 4 },
+    greeting: { fontSize: 14, fontFamily: FONTS.regular, marginBottom: 14 },
+    sectionTitle: { fontSize: 17, fontFamily: FONTS.semibold, marginBottom: 10 },
+    groupTitle: { fontSize: 12, fontFamily: FONTS.semibold, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 8, marginLeft: 2 },
+    card: {
+        borderWidth: 1,
+        borderRadius: 18,
+        padding: 16,
+        marginBottom: 10,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
+        elevation: 1,
+    },
+    centerCard: { alignItems: 'center', paddingVertical: 28, gap: 8 },
+    emptyIcon: { width: 60, height: 60, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+    emptyTitle: { fontSize: 17, fontFamily: FONTS.semibold },
+    emptyBody: { fontSize: 14, fontFamily: FONTS.regular, textAlign: 'center', lineHeight: 20, paddingHorizontal: 8 },
+    primaryButton: { borderRadius: 12, paddingVertical: 10, paddingHorizontal: 22, marginTop: 6 },
+    primaryButtonText: { fontSize: 15, fontFamily: FONTS.semibold },
+    brokerCard: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+    brokerName: { fontSize: 16, fontFamily: FONTS.semibold },
+    brokerSub: { fontSize: 13, fontFamily: FONTS.regular },
+    openPill: { borderRadius: 14, paddingHorizontal: 14, paddingVertical: 6 },
+    openPillText: { fontSize: 13, fontFamily: FONTS.semibold },
+    soonPill: { fontSize: 12, fontFamily: FONTS.medium, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4, overflow: 'hidden' },
+    botRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
+    botIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+    botName: { fontSize: 15, fontFamily: FONTS.semibold },
+    statusRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+    statusDot: { width: 7, height: 7, borderRadius: 4 },
+    statusText: { fontSize: 12, fontFamily: FONTS.medium },
+
+    // Sidebar
+    overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.5)' },
     sidebar: {
         // top/bottom are set from the safe-area insets, so it never goes under the system bars
         position: 'absolute',
         left: 0,
         width: SIDEBAR_WIDTH,
-        paddingHorizontal: 20,
-        paddingTop: 16,
-        paddingBottom: 24,
+        paddingHorizontal: 18,
+        paddingTop: 14,
+        paddingBottom: 20,
         borderTopRightRadius: 24,
         borderBottomRightRadius: 24,
         shadowColor: '#000',
@@ -330,88 +370,14 @@ const localStyles = StyleSheet.create({
         shadowRadius: 16,
         elevation: 16,
     },
-    closeSidebarButton: {
-        alignSelf: 'flex-end',
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    sidebarProfileContainer: {
-        alignItems: 'center',
-        marginBottom: 14,
-        marginTop: 8,
-    },
-    sidebarUsername: {
-        fontSize: 18,
-        fontFamily: FONTS.semibold,
-        textAlign: 'center',
-    },
-    sidebarEmail: {
-        fontSize: 13,
-        fontFamily: FONTS.regular,
-        textAlign: 'center',
-        marginTop: 2,
-    },
-    sidebarSettingsButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 14,
-        paddingHorizontal: 16,
-        borderRadius: 14,
-        borderWidth: 1,
-    },
-    settingsIcon: {
-        marginRight: 12,
-    },
-    sidebarSettingsText: {
-        flex: 1,
-        fontSize: 16,
-        fontFamily: FONTS.medium,
-    },
-    overlay: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    },
-    menuButton: {
-        width: 42,
-        height: 42,
-        borderRadius: 12,
-        borderWidth: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginLeft: 8,
-        marginTop: 8,
-    },
-    headerRight: {
-        width: 40,
-        marginRight: 16,
-    },
-    emptyContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        paddingTop: 100,
-    },
-    emptyText: {
-        fontSize: 18,
-        marginTop: 16,
-        textAlign: 'center',
-        marginBottom: 20,
-    },
-    retryButton: {
-        paddingVertical: 12,
-        paddingHorizontal: 24,
-        borderRadius: 8,
-        marginTop: 16,
-    },
-    retryButtonText: {
-        fontSize: 16,
-        fontWeight: '600',
-    },
+    closeSidebarButton: { alignSelf: 'flex-end', width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+    sidebarProfile: { alignItems: 'center', marginBottom: 18 },
+    sidebarUsername: { fontSize: 17, fontFamily: FONTS.semibold, marginTop: 10 },
+    sidebarEmail: { fontSize: 13, fontFamily: FONTS.regular, marginTop: 1 },
+    sidebarSection: { fontSize: 12, fontFamily: FONTS.semibold, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6, marginLeft: 2 },
+    sidebarRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth },
+    sidebarRowTitle: { fontSize: 15, fontFamily: FONTS.semibold },
+    sidebarRowSub: { fontSize: 12, fontFamily: FONTS.regular },
+    sidebarSettingsButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 14, borderWidth: 1, marginTop: 12 },
+    sidebarSettingsText: { flex: 1, fontSize: 16, fontFamily: FONTS.medium },
 });

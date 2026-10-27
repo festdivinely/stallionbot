@@ -35,8 +35,8 @@ export async function sendPasswordResetEmail(receiverEmail, resetLink) {
     }
 
     // Email content
-    const subject = 'Reset Your Password - Trade Divinely Bot';
-    const plainBody = `You requested a password reset for Trade Divinely Bot. Please reset your password by clicking the link below:\n${resetLink}\nThis link will expire in 15 minutes for your security.\nIf you didn’t request a password reset, please ignore this email or contact support.`;
+    const subject = 'Reset Your Password - Stallion Trader';
+    const plainBody = `You requested a password reset for Stallion Trader. Please reset your password by clicking the link below:\n${resetLink}\nThis link will expire in 15 minutes for your security.\nIf you didn’t request a password reset, please ignore this email or contact support.`;
 
     const htmlBody = `
       <html>
@@ -49,7 +49,7 @@ export async function sendPasswordResetEmail(receiverEmail, resetLink) {
                   <!-- Header -->
                   <tr>
                     <td align="center" style="background: linear-gradient(90deg, #ff6b6b 0%, #ff8e53 100%); padding:30px; color:#ffffff; font-size:24px; font-weight:bold;">
-                      Trade Divinely Bot
+                      Stallion Trader
                     </td>
                   </tr>
                   <!-- Body -->
@@ -57,7 +57,7 @@ export async function sendPasswordResetEmail(receiverEmail, resetLink) {
                     <td style="padding:30px; color:#333333; font-size:16px; line-height:1.6;">
                       <h2 style="margin-top:0; color:#ff6b6b;">Password Reset Request</h2>
                       <p>
-                        We received a request to reset your password for <b>Trade Divinely Bot</b>. To proceed, please click the button below to set a new password.
+                        We received a request to reset your password for <b>Stallion Trader</b>. To proceed, please click the button below to set a new password.
                       </p>
                       <!-- Button -->
                       <p style="text-align:center; margin:30px 0;">
@@ -73,7 +73,7 @@ export async function sendPasswordResetEmail(receiverEmail, resetLink) {
                   <!-- Footer -->
                   <tr>
                     <td align="center" style="background:#f4f7fb; padding:20px; font-size:13px; color:#888888;">
-                      &copy; ${new Date().getFullYear()} Trade Divinely Bot. All rights reserved.<br/>
+                      &copy; ${new Date().getFullYear()} Stallion Trader. All rights reserved.<br/>
                       Need help? <a href="mailto:support@tradedivinely.com" style="color:#ff6b6b; text-decoration:none;">Contact Support</a>
                     </td>
                   </tr>

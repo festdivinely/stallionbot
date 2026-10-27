@@ -38,9 +38,9 @@ export async function sendSuspiciousActivityEmail(receiverEmail, activityData) {
         const { ip = 'Unknown', country = 'Unknown', deviceInfo = 'Unknown device', message = 'Suspicious activity detected' } = activityData || {};
 
         // Email content
-        const subject = 'Security Alert: Suspicious Activity on Your Trade Divinely Bot Account';
+        const subject = 'Security Alert: Suspicious Activity on Your Stallion Trader Account';
         const plainBody = `
-            We detected unusual activity on your Trade Divinely Bot account. Details:
+            We detected unusual activity on your Stallion Trader account. Details:
             - IP Address: ${ip}
             - Location: ${country}
             - Device: ${deviceInfo}
@@ -54,7 +54,7 @@ export async function sendSuspiciousActivityEmail(receiverEmail, activityData) {
             If you didn't recognize this activity, contact support@tradedivinely.com right away.
 
             Thank you,
-            The Trade Divinely Bot Team
+            The Stallion Trader Team
         `;
 
         const htmlBody = `
@@ -68,7 +68,7 @@ export async function sendSuspiciousActivityEmail(receiverEmail, activityData) {
                                 <!-- Header -->
                                 <tr>
                                     <td align="center" style="background: linear-gradient(90deg, #ff6b6b 0%, #ff8e53 100%); padding:30px; color:#ffffff; font-size:24px; font-weight:bold;">
-                                        Trade Divinely Bot Security Alert
+                                        Stallion Trader Security Alert
                                     </td>
                                 </tr>
                                 <!-- Body -->
@@ -76,7 +76,7 @@ export async function sendSuspiciousActivityEmail(receiverEmail, activityData) {
                                     <td style="padding:30px; color:#333333; font-size:16px; line-height:1.6;">
                                         <h2 style="margin-top:0; color:#ff6b6b;">Unusual Activity Detected</h2>
                                         <p>
-                                            We noticed something unusual on your <b>Trade Divinely Bot</b> account. Here's what we detected:
+                                            We noticed something unusual on your <b>Stallion Trader</b> account. Here's what we detected:
                                         </p>
                                         <ul style="margin:20px 0; padding-left:20px;">
                                             <li><strong>IP Address:</strong> ${ip}</li>
@@ -106,7 +106,7 @@ export async function sendSuspiciousActivityEmail(receiverEmail, activityData) {
                                 <!-- Footer -->
                                 <tr>
                                     <td align="center" style="background:#f4f7fb; padding:20px; font-size:13px; color:#888888;">
-                                        &copy; ${new Date().getFullYear()} Trade Divinely Bot. All rights reserved.<br/>
+                                        &copy; ${new Date().getFullYear()} Stallion Trader. All rights reserved.<br/>
                                         This is an automated security notification. Do not reply.
                                     </td>
                                 </tr>

@@ -6,6 +6,7 @@ import Svg, { Circle, Rect } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import RobotIllustration from '../robotFace';
 import { PRICE_UP, type WelcomePalette } from './welcomePalette';
+import { BROKERS } from '../../constants/brokers';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -112,41 +113,28 @@ export function HeroRobot({ palette }: { palette: WelcomePalette }) {
     );
 }
 
-/** Slide 2: a mini bot card, showing what the user will build. */
-export function BotCardIllustration({ palette }: { palette: WelcomePalette }) {
+/** Slide 2: the brokers the app works with, plus a "more coming" row. Reads constants/brokers.ts. */
+export function BrokersIllustration({ palette }: { palette: WelcomePalette }) {
+    const rows = [
+        ...BROKERS.map((b) => ({ key: b.id, initials: b.initials, name: b.name, live: b.status === 'available' })),
+        { key: 'more', initials: '+', name: 'More brokers', live: false },
+    ];
     return (
         <View style={[styles.botCard, { backgroundColor: palette.card, borderColor: palette.cardBorder }]}>
-            <View style={styles.botHeader}>
-                <View style={[styles.botAvatar, { backgroundColor: palette.accent }]}>
-                    <Ionicons name="hardware-chip-outline" size={20} color={palette.onAccent} />
-                </View>
-                <View style={{ flex: 1 }}>
-                    <Text style={[styles.botName, { color: palette.text }]}>Morning scalper</Text>
+            {rows.map((r) => (
+                <View key={r.key} style={styles.botHeader}>
+                    <View style={[styles.botAvatar, { backgroundColor: r.live ? palette.accent : palette.accentSoft }]}>
+                        <Text style={[styles.initials, { color: r.live ? palette.onAccent : palette.accent }]}>{r.initials}</Text>
+                    </View>
+                    <Text style={[styles.botName, { color: palette.text, flex: 1 }]}>{r.name}</Text>
                     <View style={styles.runningRow}>
-                        <View style={[styles.runningDot, { backgroundColor: PRICE_UP }]} />
-                        <Text style={[styles.running, { color: PRICE_UP }]}>Running</Text>
+                        <View style={[styles.runningDot, { backgroundColor: r.live ? PRICE_UP : palette.dot }]} />
+                        <Text style={[styles.running, { color: r.live ? PRICE_UP : palette.textMuted }]}>
+                            {r.live ? 'Available' : 'Coming soon'}
+                        </Text>
                     </View>
                 </View>
-                <Text style={[styles.botMarket, { color: palette.textMuted }]}>Vol 75</Text>
-            </View>
-            <BarRow label="Stake per trade" value="$1.00" fill={0.35} palette={palette} />
-            <BarRow label="Daily loss limit" value="$10.00" fill={0.6} palette={palette} />
-            <BarRow label="Trades today" value="7 / 20" fill={0.35} palette={palette} />
-            <Text style={[styles.example, { color: palette.textMuted }]}>Example bot</Text>
-        </View>
-    );
-}
-
-function BarRow({ label, value, fill, palette }: { label: string; value: string; fill: number; palette: WelcomePalette }) {
-    return (
-        <View style={styles.barRow}>
-            <View style={styles.barLabels}>
-                <Text style={[styles.barLabel, { color: palette.textMuted }]}>{label}</Text>
-                <Text style={[styles.barValue, { color: palette.text }]}>{value}</Text>
-            </View>
-            <View style={[styles.barTrack, { backgroundColor: palette.accentSoft }]}>
-                <View style={[styles.barFill, { width: `${fill * 100}%`, backgroundColor: palette.accent }]} />
-            </View>
+            ))}
         </View>
     );
 }
@@ -205,17 +193,10 @@ const styles = StyleSheet.create({
     botHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     botAvatar: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
     botName: { fontSize: 15, fontWeight: '700' },
-    runningRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
+    initials: { fontSize: 14, fontWeight: '700' },
+    runningRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
     runningDot: { width: 7, height: 7, borderRadius: 4 },
     running: { fontSize: 12, fontWeight: '600' },
-    botMarket: { fontSize: 12 },
-    barRow: { gap: 6 },
-    barLabels: { flexDirection: 'row', justifyContent: 'space-between' },
-    barLabel: { fontSize: 13 },
-    barValue: { fontSize: 13, fontWeight: '600' },
-    barTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
-    barFill: { height: 6, borderRadius: 3 },
-    example: { fontSize: 11, textAlign: 'right' },
     shieldHalo: { width: 150, height: 150, borderRadius: 75, borderWidth: 1, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center' },
     shieldTile: { width: 96, height: 96, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
 });

@@ -1,5 +1,5 @@
 import jwt from "jsonwebtoken";
-import Users from "../models/userModel.js";
+import Users, { REFRESH_GRACE_MS } from "../models/userModel.js";
 import bcrypt from "bcryptjs";
 import ms from "ms";
 import dotenv from "dotenv";
@@ -394,8 +394,8 @@ export const setupTOTP = [
 
             // Generate new secret
             const secret = speakeasy.generateSecret({
-                name: `QuantumRobots:${user.email}`,
-                issuer: 'Quantum Robots'
+                name: `StallionTrader:${user.email}`,
+                issuer: 'Stallion Trader'
             });
 
             // Store temporary secret
@@ -511,8 +511,8 @@ export const setupTOTPLogin = [
 
             // Generate new secret for TOTP setup
             const secret = speakeasy.generateSecret({
-                name: `QuantumRobots:${user.email}`,
-                issuer: 'Quantum Robots'
+                name: `StallionTrader:${user.email}`,
+                issuer: 'Stallion Trader'
             });
 
             // Store temporary secret
@@ -1822,14 +1822,32 @@ export const refreshToken = [
             }
 
             if (session.used) {
+                // The same phone asking again moments after a refresh, while the new token it was
+                // given hasn't been used yet: the reply was lost (network drop, server restart).
+                // Send that new token again instead of treating it as theft.
+                const successor = user.sessions.find((s) => s.token === session.rotatedTo && !s.used);
+                const sameDevice = !fingerprint || fingerprint === session.fingerprint;
+                const withinGrace = session.usedAt && Date.now() - session.usedAt.getTime() < REFRESH_GRACE_MS;
+                if (successor && sameDevice && withinGrace) {
+                    console.info('Refresh replayed after a lost reply', { userId: user._id, ip, country, deviceInfo });
+                    return res.json({
+                        accessToken: await user.generateAccessToken(),
+                        refreshToken: successor.token,
+                        csrfToken: successor.csrfToken,
+                    });
+                }
                 user.sessions = [];
                 await user.save();
                 console.warn('Token reuse detected, sessions cleared', { userId: user._id, ip, country, deviceInfo });
                 return res.status(401).json({ message: 'Token reuse detected - all sessions invalidated' });
             }
 
-            user.sessions[sessionIndex].used = true;
             const newRefresh = await user.generateRefreshToken(fingerprint || session.fingerprint, ip, country, deviceInfo);
+            // Marked after the new session exists, so it can point at its replacement
+            const used = user.sessions[sessionIndex];
+            used.used = true;
+            used.usedAt = new Date();
+            used.rotatedTo = newRefresh;
             await user.cleanSessions();
             await user.save();
 

@@ -15,6 +15,7 @@ import { THEME_COLORS } from '../../constants/colors';
 import createStyles from '../../assets/styles/passwordResetCode.styles';
 import api from '../../apis/authApi';
 import KeyboardSafeScroll from '../../components/KeyboardSafeScroll';
+import ClipboardCodeBanner from '../../components/ClipboardCodeBanner';
 
 export default function ResetPasswordCode() {
     const theme = useThemeStore((state) => state.theme);
@@ -53,8 +54,10 @@ export default function ResetPasswordCode() {
         }
     };
 
-    const handleVerifyCode = async () => {
-        if (!/^\d{6}$/.test(code)) {
+    // `pasted` = a code from the clipboard banner, submitted straight away
+    const handleVerifyCode = async (pasted?: string) => {
+        const value = pasted ?? code;
+        if (!/^\d{6}$/.test(value)) {
             setError('Please enter a valid 6-digit verification code.');
             return;
         }
@@ -63,7 +66,7 @@ export default function ResetPasswordCode() {
         setError('');
 
         try {
-            const payload: Record<string, string> = { code };
+            const payload: Record<string, string> = { code: value };
             if (email) payload.email = email;
 
             const response = await api.post('/api/auth/verify-reset-code', payload);
@@ -151,6 +154,12 @@ export default function ResetPasswordCode() {
                     </View>
                 )}
 
+                <ClipboardCodeBanner
+                    onUse={(c) => {
+                        setCode(c);
+                        handleVerifyCode(c);
+                    }}
+                />
                 <View style={styles.inputGroup}>
                     <Text style={styles.label}>Verification Code</Text>
                     <View
@@ -175,6 +184,8 @@ export default function ResetPasswordCode() {
                             }}
                             keyboardType="number-pad"
                             maxLength={6}
+                            autoComplete="one-time-code"
+                            textContentType="oneTimeCode"
                         />
                         <TouchableOpacity onPress={handlePaste}>
                             <Ionicons
@@ -190,7 +201,7 @@ export default function ResetPasswordCode() {
 
                 <TouchableOpacity
                     style={styles.button}
-                    onPress={handleVerifyCode}
+                    onPress={() => handleVerifyCode()}
                     disabled={isVerifying}
                 >
                     {isVerifying ? (

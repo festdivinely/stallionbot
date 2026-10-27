@@ -60,11 +60,12 @@ export default function RootLayout() {
     // FOR TESTING: uncomment to always open a specific auth screen
     // router.replace('/(auth)/TOTPVerification'); return;
 
-    const inTabs = segments[0] === '(tabs)';
+    // Screens that need a login: the tabs and every broker's screens
+    const inPrivate = segments[0] === '(tabs)' || segments[0] === 'deriv';
     // The landing page (app/index.tsx) has no segments; the typed routes don't model that case
     const onLanding = (segments as string[]).length === 0;
 
-    if (!isAuthenticated && inTabs) {
+    if (!isAuthenticated && inPrivate) {
       console.log('RootLayout: Not authenticated, redirecting to auth index');
       router.replace('/(auth)');
     } else if (isAuthenticated && onLanding) {
@@ -88,6 +89,7 @@ export default function RootLayout() {
             <Stack.Screen name="index" />
             <Stack.Screen name="(auth)" />
             <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="deriv" />
           </Stack>
 
           {/* Covers the screens until the saved login is checked and the font has loaded */}

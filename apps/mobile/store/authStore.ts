@@ -3,7 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
-import api, { connectAuthStore } from '../apis/authApi';
+import api, { connectAuthStore, refreshTokensOnce } from '../apis/authApi';
 import { validateUsernameFrontend, validatePasswordFrontend, validateEmailFrontend } from '../utils/validation';
 
 // Types for device info
@@ -217,14 +217,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const refreshToken = await SecureStore.getItemAsync('refreshToken');
       const accessToken = await SecureStore.getItemAsync('accessToken');
       const fingerprint = await SecureStore.getItemAsync('deviceId');
+      const csrfToken = await SecureStore.getItemAsync('csrfToken');
 
       console.log('initializeAuth: Retrieved stored values', {
         hasRefreshToken: !!refreshToken,
         hasAccessToken: !!accessToken,
-        hasFingerprint: !!fingerprint
+        hasFingerprint: !!fingerprint,
+        hasCsrfToken: !!csrfToken
       });
 
-      if (!refreshToken || !accessToken || !fingerprint) {
+      if (!refreshToken || !accessToken || !fingerprint || !csrfToken) {
         console.log('initializeAuth: Missing tokens or fingerprint, setting unauthenticated');
         set({
           isAuthenticated: false,
@@ -238,11 +240,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return false;
       }
 
-      set({ accessToken, refreshToken, fingerprint });
+      set({ accessToken, refreshToken, fingerprint, csrfToken });
       console.log('initializeAuth: Tokens and fingerprint set in state');
 
       const refreshSuccess = await get().refresh();
       console.log('initializeAuth: Refresh attempt completed', { refreshSuccess });
+
+      // refresh() logs out (and deletes the saved tokens) only when the server rejected them. If
+      // the tokens are still saved, the server was unreachable or busy: keep them for next time.
+      if (!refreshSuccess && (await SecureStore.getItemAsync('refreshToken'))) {
+        console.log('initializeAuth: Server unreachable or busy, keeping saved login for the next start');
+        set({ isAuthenticated: false, user: null, isLoading: false });
+        return false;
+      }
 
       if (!refreshSuccess) {
         console.log('initializeAuth: Token refresh failed, clearing state');
@@ -258,7 +268,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         await Promise.all([
           SecureStore.deleteItemAsync('refreshToken'),
           SecureStore.deleteItemAsync('accessToken'),
-          SecureStore.deleteItemAsync('deviceId'),
+          SecureStore.deleteItemAsync('csrfToken'),
         ]);
         return false;
       }
@@ -272,7 +282,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         isActive: data.user?.isActive
       });
 
-      if (!data.user?.isActive) {
+      // The server only answers /profile for active (email-verified) accounts and doesn't send
+      // isActive back, so only an explicit false means "not verified"
+      if (data.user?.isActive === false) {
         console.log('initializeAuth: User is not active, requires email verification');
         set({
           isAuthenticated: false,
@@ -302,6 +314,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         status: error.response?.status,
         response: error.response?.data,
       });
+      // Only throw the saved login away when the server rejected it; a network blip while
+      // loading the profile shouldn't log the user out
+      const rejected = error.response?.status === 401 || error.response?.status === 403;
+      if (!rejected) {
+        set({ isAuthenticated: false, user: null, isLoading: false });
+        return false;
+      }
       set({
         isAuthenticated: false,
         accessToken: null,
@@ -314,7 +333,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await Promise.all([
         SecureStore.deleteItemAsync('refreshToken'),
         SecureStore.deleteItemAsync('accessToken'),
-        SecureStore.deleteItemAsync('deviceId'),
+        SecureStore.deleteItemAsync('csrfToken'),
       ]);
       return false;
     }
@@ -326,6 +345,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await Promise.all([
         SecureStore.setItemAsync('accessToken', access),
         SecureStore.setItemAsync('refreshToken', refresh),
+        // The server only accepts a refresh together with this session's CSRF token, so it must
+        // survive an app restart too (it used to live only in memory, which logged users out)
+        SecureStore.setItemAsync('csrfToken', csrf),
       ]);
       console.log('setTokens: Stored tokens', {
         accessTokenLength: access.length,
@@ -590,7 +612,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await Promise.all([
         SecureStore.deleteItemAsync('refreshToken'),
         SecureStore.deleteItemAsync('accessToken'),
-        SecureStore.deleteItemAsync('deviceId'),
+        SecureStore.deleteItemAsync('csrfToken'),
       ]);
 
       return {
@@ -609,7 +631,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         await Promise.all([
           SecureStore.deleteItemAsync('refreshToken'),
           SecureStore.deleteItemAsync('accessToken'),
-          SecureStore.deleteItemAsync('deviceId'),
+          SecureStore.deleteItemAsync('csrfToken'),
         ]);
         throw new Error('Device fingerprint missing');
       }
@@ -925,7 +947,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         await Promise.all([
           SecureStore.deleteItemAsync('refreshToken'),
           SecureStore.deleteItemAsync('accessToken'),
-          SecureStore.deleteItemAsync('deviceId'),
+          SecureStore.deleteItemAsync('csrfToken'),
         ]);
         console.log(`🔐 ${logoutId} - Secure storage cleared`);
       } catch (storageError: any) {
@@ -968,15 +990,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       try {
         console.log('🔄 Refresh: Attempting token refresh');
-        const { data } = await api.post('/api/auth/refresh-token',
-          { refreshToken, fingerprint },
-          {
-            headers: { 'X-CSRF-Token': csrfToken },
-            timeout: 10000
-          }
-        );
-
-        await get().setTokens(data.accessToken, data.refreshToken, data.csrfToken);
+        // Shared with the request interceptor's refresh so the two never race (it also saves the tokens)
+        await refreshTokensOnce();
         console.log('✅ Refresh: Successful');
         set({ isLoading: false, isAuthenticated: true });
         return true;
@@ -986,6 +1001,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           message: error.response?.data?.message || error.message
         });
 
+        // Only the server saying the login is no longer valid (401/403) ends the session. No
+        // response (network down) or "too many requests" (429) says nothing about the login.
+        const status = error.response?.status;
+        if (status !== 401 && status !== 403) {
+          set({ isLoading: false });
+          return false;
+        }
         await get().logout();
         return false;
       }

@@ -1,5 +1,5 @@
-// The welcome flow: slide 1 is the live market screen, slides 2-3 explain the app, and the last
-// slide is where the user signs up or logs in.
+// The welcome flow: slide 1 is the live market screen, slide 2 shows the supported brokers, and the
+// last slide (demo and safety) is where the user signs up or logs in.
 // Moving between slides: swipe, the round Next button (its ring fills with progress), tap a dot,
 // or Skip (jumps to the last slide). Never auto-advances. A one-time nudge on first launch
 // shows that the slides can be swiped.
@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Circle } from 'react-native-svg';
 import LiveTickerCard from './LiveTickerCard';
-import { BackgroundDecor, BotCardIllustration, Chip, HeroRobot, ShieldIllustration } from './WelcomeArt';
+import { BackgroundDecor, BrokersIllustration, Chip, HeroRobot, ShieldIllustration } from './WelcomeArt';
 import { PRICE_DOWN, PRICE_UP, withAlpha, type WelcomePalette } from './welcomePalette';
 import { useLiveTicks, type FeedStatus } from '../../hooks/useLiveTicks';
 
@@ -33,12 +33,12 @@ const HIGHLIGHTS: Record<'market' | 'rules', { icon: IconName; label: string }[]
     market: [
         { icon: 'pulse-outline', label: 'Live data' },
         { icon: 'hardware-chip-outline', label: 'Smart bots' },
-        { icon: 'time-outline', label: 'Runs 24/7' },
+        { icon: 'git-network-outline', label: 'Many brokers' },
     ],
     rules: [
-        { icon: 'cash-outline', label: 'Your stake' },
+        { icon: 'construct-outline', label: 'Build bots' },
+        { icon: 'hand-left-outline', label: 'Trade manually' },
         { icon: 'shield-outline', label: 'Loss limits' },
-        { icon: 'speedometer-outline', label: 'Trade caps' },
     ],
 };
 
@@ -117,7 +117,7 @@ export default function WelcomeSlides({ palette }: Props) {
                     <Animated.View style={[styles.hero, enter(24)]}>
                         <HeroRobot palette={palette} />
                         <Text style={[styles.title, { color: palette.text }]}>Trade smarter</Text>
-                        <Text style={[styles.subtitle, { color: palette.textMuted }]}>Bots that follow your rules</Text>
+                        <Text style={[styles.subtitle, { color: palette.textMuted }]}>Bots for every broker you use</Text>
                     </Animated.View>
                     <Animated.View style={[styles.tickerRow, enter(40)]}>
                         {tickers.slice(0, 2).map((s) => (
@@ -129,10 +129,10 @@ export default function WelcomeSlides({ palette }: Props) {
 
             {item === 'rules' && (
                 <View style={[styles.slideBody, styles.centered]}>
-                    <BotCardIllustration palette={palette} />
-                    <Text style={[styles.title, styles.titleGap, { color: palette.text }]}>You set the rules</Text>
+                    <BrokersIllustration palette={palette} />
+                    <Text style={[styles.title, styles.titleGap, { color: palette.text }]}>All your brokers, one app</Text>
                     <Text style={[styles.body, { color: palette.textMuted }]}>
-                        Pick a strategy, then decide how much your bot may risk. It never trades outside your limits.
+                        Pick a broker, then build a bot or trade by hand with ready-made strategies. Your limits apply everywhere.
                     </Text>
                 </View>
             )}

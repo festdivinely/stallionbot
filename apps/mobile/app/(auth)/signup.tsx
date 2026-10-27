@@ -143,8 +143,8 @@ export default function Signup() {
                         <View style={[localStyles.robotBadge, { borderColor: colors.primary, backgroundColor: colors.inputBackground }]}>
                             <RobotIllustration width={60} height={60} />
                         </View>
-                        <Text style={[styles.title, { color: colors.primary }]}>Quantum Robots</Text>
-                        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Efficient Trading At Its Best</Text>
+                        <Text style={[styles.title, { color: colors.primary }]}>Stallion Trader</Text>
+                        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>One app for all your brokers</Text>
                         <View style={localStyles.chipRow}>
                             <Chip icon="wallet-outline" label="Free demo account" iconColor={colors.primary} palette={palette} />
                             <Chip icon="lock-closed-outline" label="2FA security" iconColor={PRICE_UP} palette={palette} />

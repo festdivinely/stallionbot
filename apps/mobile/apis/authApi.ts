@@ -17,6 +17,33 @@ function getAuthStore() {
   return authStore;
 }
 
+// The server gives out a new refresh token on every refresh and retires the old one. So two
+// refreshes at the same moment (e.g. the startup login check and a request that got a 401) would
+// make the second one fail and log the user out. Everyone shares this one in-flight refresh.
+let refreshInFlight: Promise<{ accessToken: string; csrfToken: string }> | null = null;
+
+/** Gets new tokens from the server (once, however many callers ask at the same time) and saves them. */
+export function refreshTokensOnce(): Promise<{ accessToken: string; csrfToken: string }> {
+  refreshInFlight ??= (async () => {
+    const refreshToken = await loadRefreshToken();
+    if (!refreshToken) throw new Error("No refresh token available");
+    const { fingerprint, csrfToken } = getAuthStore().getState();
+    if (!fingerprint) throw new Error("Device fingerprint missing");
+    if (!csrfToken) throw new Error("CSRF token missing");
+
+    const { data } = await axios.post(
+      `${API_URL}/api/auth/refresh-token`,
+      { refreshToken, fingerprint },
+      { headers: { "X-CSRF-Token": csrfToken, "Content-Type": "application/json" }, timeout: 10000 }
+    );
+    await getAuthStore().getState().setTokens(data.accessToken, data.refreshToken, data.csrfToken);
+    return { accessToken: data.accessToken as string, csrfToken: data.csrfToken as string };
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
 const logger = {
   info: (message: string, meta?: any) => console.log(`[INFO] ${new Date().toISOString()} ${message}`, meta || ""),
   error: (message: string, meta?: any) => console.error(`[ERROR] ${new Date().toISOString()} ${message}`, meta || ""),
@@ -59,11 +86,8 @@ api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     // Skip logging for logout requests to reduce noise
     if (!config.url?.includes('/api/auth/logout')) {
-      console.log('🚀 Sending request:', {
-        method: config.method,
-        url: config.url,
-        headers: config.headers
-      });
+      // No headers in the log: they hold the login token
+      console.log('🚀 Sending request:', { method: config.method, url: config.url });
     }
 
     const { accessToken, csrfToken } = getAuthStore().getState();
@@ -117,7 +141,8 @@ api.interceptors.response.use(
         ? (error.response.data as any).message
         : "Too many requests, please try again later";
 
-      logger.error("Rate limit exceeded", {
+      // A warning, not an error: it's a temporary "slow down", and the next request usually works
+      console.warn("Rate limit reached", {
         url,
         message: errorMessage,
       });
@@ -157,46 +182,8 @@ api.interceptors.response.use(
       logger.info("Attempting token refresh", { url });
 
       try {
-        // 1. Load refresh token from secure storage
-        const refreshToken = await loadRefreshToken();
-        if (!refreshToken) {
-          throw new Error("No refresh token available");
-        }
-
-        // 2. Get fingerprint from auth store
-        const fingerprint = getAuthStore().getState().fingerprint;
-        if (!fingerprint) {
-          throw new Error("Device fingerprint missing");
-        }
-
-        // 3. Get CSRF token
-        const csrfToken = getAuthStore().getState().csrfToken;
-        if (!csrfToken) {
-          throw new Error("CSRF token missing");
-        }
-
-        // 4. Call refresh endpoint
-        const { data } = await axios.post(
-          `${api.defaults.baseURL}/api/auth/refresh-token`,
-          {
-            refreshToken,
-            fingerprint,
-          },
-          {
-            headers: {
-              "X-CSRF-Token": csrfToken,
-              "Content-Type": "application/json"
-            },
-            timeout: 10000
-          }
-        );
-
-        // 5. Update tokens in auth store
-        await getAuthStore().getState().setTokens(
-          data.accessToken,
-          data.refreshToken,
-          data.csrfToken
-        );
+        // Shared with the store's own refresh, so the two never race (see refreshTokensOnce)
+        const data = await refreshTokensOnce();
 
         logger.info("Token refresh successful", { url });
 

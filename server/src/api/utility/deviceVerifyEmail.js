@@ -40,9 +40,9 @@ export async function sendDeviceVerificationEmail(receiverEmail, otp, deviceInfo
         const safeIp = ip || 'Unknown IP';
 
         // Email content
-        const subject = 'Verify New Device - Trade Divinely Bot';
+        const subject = 'Verify New Device - Stallion Trader';
         const plainBody = `
-            We detected a new device trying to access your Trade Divinely Bot account. To verify, use this one-time password (OTP):
+            We detected a new device trying to access your Stallion Trader account. To verify, use this one-time password (OTP):
 
             OTP: ${otp}
 
@@ -55,7 +55,7 @@ export async function sendDeviceVerificationEmail(receiverEmail, otp, deviceInfo
             If you didn't initiate this, ignore or contact support@tradedivinely.com to secure your account.
 
             Thank you,
-            The Trade Divinely Bot Team
+            The Stallion Trader Team
         `;
 
         const htmlBody = `
@@ -69,7 +69,7 @@ export async function sendDeviceVerificationEmail(receiverEmail, otp, deviceInfo
                                 <!-- Header -->
                                 <tr>
                                     <td align="center" style="background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); padding:30px; color:#ffffff; font-size:24px; font-weight:bold;">
-                                        Trade Divinely Bot Device Verification
+                                        Stallion Trader Device Verification
                                     </td>
                                 </tr>
                                 <!-- Body -->
@@ -77,7 +77,7 @@ export async function sendDeviceVerificationEmail(receiverEmail, otp, deviceInfo
                                     <td style="padding:30px; color:#333333; font-size:16px; line-height:1.6;">
                                         <h2 style="margin-top:0; color:#4facfe;">New Device Detected</h2>
                                         <p>
-                                            A new device is trying to log in to your <b>Trade Divinely Bot</b> account. To verify, use the one-time password (OTP) below.
+                                            A new device is trying to log in to your <b>Stallion Trader</b> account. To verify, use the one-time password (OTP) below.
                                         </p>
                                         <!-- OTP Display -->
                                         <div style="text-align:center; margin:30px 0; background:#f8f9fa; padding:20px; border-radius:8px; border:2px solid #4facfe;">
@@ -99,7 +99,7 @@ export async function sendDeviceVerificationEmail(receiverEmail, otp, deviceInfo
                                 <!-- Footer -->
                                 <tr>
                                     <td align="center" style="background:#f4f7fb; padding:20px; font-size:13px; color:#888888;">
-                                        &copy; ${new Date().getFullYear()} Trade Divinely Bot. All rights reserved.<br/>
+                                        &copy; ${new Date().getFullYear()} Stallion Trader. All rights reserved.<br/>
                                         This is an automated  an automated security notification. Do not reply.
                                     </td>
                                 </tr>
