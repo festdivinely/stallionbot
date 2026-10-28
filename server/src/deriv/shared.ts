@@ -21,6 +21,11 @@ interface Shared {
 
 const shared: Partial<Record<AccountType, Shared>> = {};
 
+/** Connection status of each account's socket, for the public /health page (no secrets). */
+export function derivStatus() {
+  return Object.fromEntries(Object.entries(shared).map(([type, s]) => [type, s!.socket.status]));
+}
+
 /** The shared socket for this account type, connecting it on first use. */
 export function getSharedSocket(type: AccountType = "demo"): DerivSocket {
   const existing = shared[type];

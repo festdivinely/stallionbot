@@ -31,6 +31,18 @@ export class DerivSocket {
   private reconnectTimer: NodeJS.Timeout | undefined;
   private readonly messageHandlers: MessageHandler[] = [];
   private readonly openHandlers: OpenHandler[] = [];
+  /** For the health page: is it connected, and the last problem (never contains secrets) */
+  readonly status: { connected: boolean; connectedAt: string | null; lastError: string | null; lastErrorAt: string | null } = {
+    connected: false,
+    connectedAt: null,
+    lastError: null,
+    lastErrorAt: null,
+  };
+
+  private noteError(text: string): void {
+    this.status.lastError = text.slice(0, 200);
+    this.status.lastErrorAt = new Date().toISOString();
+  }
 
   /** Which account this connection is for. Demo unless real is asked for explicitly. */
   constructor(readonly accountType: AccountType = "demo") {}
@@ -53,6 +65,7 @@ export class DerivSocket {
       this.open(url);
     } catch (err) {
       console.error(`[deriv] connect failed: ${(err as Error).message}`);
+      this.noteError(`connect failed: ${(err as Error).message}`);
       this.scheduleReconnect();
     }
   }
@@ -82,6 +95,8 @@ export class DerivSocket {
     ws.addEventListener("open", () => {
       console.log(`[deriv] connected (${this.accountType} account ${this.accountId})`);
       this.attempt = 0;
+      this.status.connected = true;
+      this.status.connectedAt = new Date().toISOString();
       this.startTimers();
       for (const handler of this.openHandlers) handler();
     });
@@ -107,8 +122,10 @@ export class DerivSocket {
       this.stopTimers();
       if (this.ws !== ws) return; // an old socket closing late; ignore it
       this.ws = undefined;
+      this.status.connected = false;
       if (!this.stopped) {
         console.warn(`[deriv] disconnected (code ${event.code})`);
+        this.noteError(`disconnected (code ${event.code}${event.reason ? `: ${event.reason}` : ""})`);
         this.scheduleReconnect();
       }
     });

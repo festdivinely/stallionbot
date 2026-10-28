@@ -123,14 +123,16 @@ app.use(rejectMongoOperators);
 app.get('/health', async (req, res) => {
     try {
         const dbStatus = await dbHealthCheck();
+        // Deriv connection per account (connected? last problem?), so it can be checked without logs
+        const deriv = await import("../deriv/shared.js").then((m) => m.derivStatus()).catch((e) => ({ error: e.message }));
 
         res.status(200).json({
             status: dbStatus.status === 'healthy' ? 'OK' : 'Degraded',
             timestamp: new Date().toISOString(),
             uptime: process.uptime(),
-            memory: process.memoryUsage(),
             environment: process.env.NODE_ENV,
-            database: dbStatus
+            database: dbStatus,
+            deriv
         });
     } catch (error) {
         res.status(503).json({
