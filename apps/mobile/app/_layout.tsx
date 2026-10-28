@@ -1,5 +1,6 @@
 // app/_layout.tsx
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack, useGlobalSearchParams, usePathname, useRouter, useSegments } from 'expo-router';
+import { clearLastScreen, loadLastScreen, saveLastScreen } from '../utils/lastScreen';
 import { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
@@ -75,12 +76,31 @@ export default function RootLayout() {
 
     if (!isAuthenticated && inPrivate) {
       console.log('RootLayout: Not authenticated, redirecting to auth index');
+      clearLastScreen();
       router.replace('/(auth)');
     } else if (isAuthenticated && onLanding) {
       console.log('RootLayout: Authenticated, redirecting to /(tabs)');
       router.replace('/(tabs)');
+      // If Android closed the app while it was in the background, reopen the screen the user was on
+      loadLastScreen().then((saved) => {
+        if (!saved?.pathname.startsWith('/deriv')) return;
+        console.log('RootLayout: Reopening', saved.pathname);
+        if (saved.pathname !== '/deriv') router.push('/deriv'); // so Back goes to the Deriv hub
+        router.push({ pathname: saved.pathname as never, params: saved.params });
+      });
     }
   }, [isReady, isAuthenticated, segments]);
+
+  // Remember the current screen (see utils/lastScreen.ts)
+  const pathname = usePathname();
+  const params = useGlobalSearchParams();
+  useEffect(() => {
+    // Every screen while logged in (only the Deriv screens get reopened; leaving them for Home
+    // means the app starts at Home again)
+    if (!isReady || !isAuthenticated) return;
+    const plain = Object.fromEntries(Object.entries(params).filter(([, v]) => typeof v === 'string')) as Record<string, string>;
+    saveLastScreen(pathname, plain);
+  }, [isReady, isAuthenticated, pathname, JSON.stringify(params)]);
 
   // The Stack must always be rendered: Expo Router breaks ("route names changed ... not handled
   // by any navigator") if the navigator disappears and comes back. The spinner covers it instead.

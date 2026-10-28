@@ -28,9 +28,10 @@ const FAILURES_BEFORE_OFFLINE = 3;
 /**
  * Live prices. With no symbols you get the default markets (Volatility 75/100); pass up to 5
  * symbols (e.g. ['frxEURUSD']) to follow those instead. The server starts following a symbol
- * the first time it is asked for, so the first second or two can be empty.
+ * the first time it is asked for, so the first second or two can be empty. `pollMs`: how often to
+ * refresh (the trading screen asks twice a second so its live ticker keeps up with every tick).
  */
-export function useLiveTicks(symbols?: string[]) {
+export function useLiveTicks(symbols?: string[], pollMs = POLL_MS) {
     const [series, setSeries] = useState<TickerSeries[]>([]);
     const [status, setStatus] = useState<FeedStatus>('connecting');
     const query = symbols?.length ? `?symbols=${symbols.map(encodeURIComponent).join(',')}` : '';
@@ -81,7 +82,7 @@ export function useLiveTicks(symbols?: string[]) {
                 if (!cancelled) markFailure();
             } finally {
                 clearTimeout(abort);
-                if (!cancelled && active) timer = setTimeout(poll, POLL_MS);
+                if (!cancelled && active) timer = setTimeout(poll, pollMs);
             }
         };
 
@@ -108,7 +109,7 @@ export function useLiveTicks(symbols?: string[]) {
             clearTimeout(timer);
             sub.remove();
         };
-    }, [query, focused]);
+    }, [query, focused, pollMs]);
 
     return { series, status };
 }

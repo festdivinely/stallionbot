@@ -21,6 +21,8 @@ import AccountSwitch, { REAL_COLOR } from '../../components/deriv/AccountSwitch'
 import ContractCard, { CONTRACT_LABELS } from '../../components/deriv/ContractCard';
 import TradeExplanation from '../../components/deriv/TradeExplanation';
 import PotBar from '../../components/deriv/PotBar';
+import LiveTickerStrip from '../../components/deriv/LiveTickerStrip';
+import { loadScreenState, saveScreenState } from '../../utils/lastScreen';
 import { potName, usd } from '../../hooks/useSplitMoney';
 import { useAccountStore } from '../../store/accountStore';
 import { PRICE_DOWN, PRICE_UP, withAlpha } from '../../components/welcome/welcomePalette';
@@ -168,6 +170,21 @@ export default function OptionsTrading() {
     const [tradeTypeId, setTradeTypeId] = useState('rise_fall');
     const tradeType = tradeTypes.data?.find((t) => t.id === tradeTypeId) ?? tradeTypes.data?.[0];
 
+    // Remember the market and trade type, so the screen comes back the same after Android closed
+    // the app in the background (utils/lastScreen.ts). Normal and Split Money modes each keep theirs.
+    const memoryKey = `options:${splitMode ? 'split' : 'normal'}`;
+    const [restored, setRestored] = useState(false);
+    useEffect(() => {
+        loadScreenState<{ symbol?: string; tradeTypeId?: string }>(memoryKey).then((saved) => {
+            if (saved?.symbol) setSymbol(saved.symbol);
+            if (saved?.tradeTypeId) setTradeTypeId(saved.tradeTypeId);
+            setRestored(true);
+        });
+    }, [memoryKey]);
+    useEffect(() => {
+        if (restored) saveScreenState(memoryKey, { symbol, tradeTypeId });
+    }, [restored, memoryKey, symbol, tradeTypeId]);
+
     const [pickerOpen, setPickerOpen] = useState(false);
     const [typesOpen, setTypesOpen] = useState(false);
 
@@ -179,7 +196,8 @@ export default function OptionsTrading() {
         if (tradeType) setSettings((s) => defaultSettings(tradeType, s?.stake ?? '10'));
     }, [tradeType]);
 
-    const { series, status } = useLiveTicks([symbol]);
+    // Twice a second, so the pinned ticker shows every tick (Deriv's fastest markets tick each second)
+    const { series, status } = useLiveTicks([symbol], 500);
     const quotes = series[0]?.quotes ?? [];
     const last = quotes[quotes.length - 1];
     const change = quotes.length > 1 && quotes[0] ? ((last! - quotes[0]) / quotes[0]) * 100 : 0;
@@ -368,6 +386,12 @@ export default function OptionsTrading() {
                 title={splitMode ? 'Split Money' : 'Options'}
                 subtitle={`${splitMode ? 'Trading from your pots' : 'Deriv'} · ${isReal ? 'Real' : 'Demo'} account`}
                 right={<AccountSwitch compact />}
+            />
+            {/* Pinned outside the scroll: always visible next to the buy buttons and progress card */}
+            <LiveTickerStrip
+                quotes={quotes}
+                decimals={asset?.pipSize ? Math.max(0, Math.round(-Math.log10(asset.pipSize))) : 2}
+                name={asset?.name}
             />
             <KeyboardSafeScroll contentContainerStyle={styles.scroll}>
                 {/* Impossible to miss when trading with real money */}
