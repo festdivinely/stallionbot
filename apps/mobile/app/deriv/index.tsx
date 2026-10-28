@@ -12,7 +12,7 @@ import { useLiveTicks } from '../../hooks/useLiveTicks';
 import BackHeader from '../../components/BackHeader';
 import LiveTickerCard from '../../components/welcome/LiveTickerCard';
 import AccountSwitch from '../../components/deriv/AccountSwitch';
-import { getWelcomePalette } from '../../components/welcome/welcomePalette';
+import { getWelcomePalette, PRICE_UP } from '../../components/welcome/welcomePalette';
 
 type Mode = 'build' | 'manual';
 
@@ -162,7 +162,9 @@ export default function DerivHub() {
                             <TouchableOpacity
                                 key={s.id}
                                 style={[styles.card, styles.strategyCard, { backgroundColor: colors.cardBackground, borderColor: colors.border }]}
-                                onPress={() => router.push({ pathname: '/deriv/strategy/[id]', params: { id: s.id } })}
+                                onPress={() =>
+                                    s.layout === 'pots' ? router.push('/deriv/split-money') : router.push({ pathname: '/deriv/strategy/[id]', params: { id: s.id } })
+                                }
                                 activeOpacity={0.85}
                             >
                                 <View style={[styles.strategyIcon, { backgroundColor: colors.inputBackground }]}>
@@ -173,7 +175,9 @@ export default function DerivHub() {
                                     <Text style={[styles.stepBody, { color: colors.textSecondary }]}>{s.summary}</Text>
                                 </View>
                                 <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                                    <Text style={[styles.riskText, { color: colors.textSecondary }]}>{s.risk} risk</Text>
+                                    <Text style={[styles.riskText, { color: s.risk === 'Safest' ? PRICE_UP : colors.textSecondary }]}>
+                                        {s.risk === 'Safest' ? 'Safest' : `${s.risk} risk`}
+                                    </Text>
                                     <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
                                 </View>
                             </TouchableOpacity>

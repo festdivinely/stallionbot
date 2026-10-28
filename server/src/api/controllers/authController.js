@@ -1868,7 +1868,12 @@ export const refreshToken = [
                 deviceInfo,
                 timestamp: new Date().toISOString(),
             });
-            return res.status(401).json({ message: 'Invalid refresh token' });
+            // Only a bad/expired token means "log in again". Anything else (database unreachable,
+            // network timeout...) is a temporary server problem: answering 401 there logged users
+            // out whenever MongoDB had a blip. 503 tells the app to keep the login and retry.
+            const tokenProblem = ['JsonWebTokenError', 'TokenExpiredError', 'NotBeforeError'].includes(error.name);
+            if (tokenProblem) return res.status(401).json({ message: 'Invalid refresh token' });
+            return res.status(503).json({ message: 'Server busy, please try again' });
         }
     }),
 ];

@@ -7,11 +7,12 @@
 //   GET  /accounts                     demo and real accounts with their balances
 //   POST /trade?account=demo|real      buy on that account, after the risk checks
 //   GET  /trades?account=demo|real     that account's balance, open and recent trades, risk standing
+//                                      (&since=N: waits and answers the moment something changes)
 //   POST /trades/:contractId/sell?account=demo|real   close an open trade early at the market price
 //   (the last four: logged-in users only, each user sees and sells only their own trades)
 import express, { Router } from "express";
 import rateLimit from "express-rate-limit";
-import { protectFast } from "../middleware/authMiddleware.js";
+import { protectFast, requireTrader } from "../middleware/authMiddleware.js";
 
 const router = Router();
 
@@ -46,6 +47,8 @@ const catalogLimiter = perMinute(120, "Too many market list requests");
 const tradeLimiter = perMinute(30, "Too many trades in a minute, slow down");
 // Open trades and balance: polled about once a second while the Options screen is open
 const tradesLimiter = perMinute(120, "Too many trade updates requested");
+// Live trade updates: one reply per change (a tick of an open trade), so up to a few a second
+const liveLimiter = perMinute(900, "Too many trade updates requested");
 
 const SYMBOL = /^\w{2,30}$/;
 const unavailable = (res) => res.status(503).json({ message: "Market data unavailable" });
@@ -117,7 +120,7 @@ function readTradeParams(req, res) {
     return params;
 }
 
-router.post("/quote", quoteLimiter, express.json({ limit: "4kb" }), protectFast, async (req, res) => {
+router.post("/quote", quoteLimiter, express.json({ limit: "4kb" }), protectFast, requireTrader, async (req, res) => {
     if (!catalog) return unavailable(res);
     const params = readTradeParams(req, res);
     if (!params) return;
@@ -134,7 +137,7 @@ router.post("/quote", quoteLimiter, express.json({ limit: "4kb" }), protectFast,
 // word "real" selects real money, so a missing or mistyped value can never trade it.
 const accountOf = (req) => (req.query.account === "real" ? "real" : "demo");
 
-router.get("/accounts", tradesLimiter, protectFast, async (req, res) => {
+router.get("/accounts", tradesLimiter, protectFast, requireTrader, async (req, res) => {
     if (!trading) return unavailable(res);
     res.set("Cache-Control", "no-store");
     try {
@@ -145,21 +148,39 @@ router.get("/accounts", tradesLimiter, protectFast, async (req, res) => {
     }
 });
 
-router.post("/trade", tradeLimiter, express.json({ limit: "4kb" }), protectFast, async (req, res) => {
+router.post("/trade", tradeLimiter, express.json({ limit: "4kb" }), protectFast, requireTrader, async (req, res) => {
     if (!trading) return unavailable(res);
+    // Split Money: the pot to trade from ("s1".."s20" sections, "b1".. banks); not a Deriv setting
+    const { potId, ...body } = req.body ?? {};
+    if (potId !== undefined && !/^[sb]\d{1,2}$/.test(String(potId))) return res.status(400).json({ ok: false, message: "Invalid pot" });
+    req.body = body;
     const params = readTradeParams(req, res);
     if (!params) return;
-    const result = await trading.placeTrade(String(req.user.id), params, accountOf(req));
+    const result = await trading.placeTrade(String(req.user.id), params, accountOf(req), potId);
     res.status(result.ok ? 200 : 400).json(result);
 });
 
-router.get("/trades", tradesLimiter, protectFast, async (req, res) => {
+// ?since=N: answer as soon as something newer than version N happens (a tick, a result, a buy),
+// or after LIVE_WAIT_MS with nothing new. The reply's `version` is the next `since`.
+const LIVE_WAIT_MS = 20_000;
+router.get("/trades", (req, res, next) => (req.query.since !== undefined ? liveLimiter : tradesLimiter)(req, res, next), protectFast, requireTrader, async (req, res) => {
     if (!trading) return unavailable(res);
     res.set("Cache-Control", "no-store");
-    res.json(await trading.getTrades(String(req.user.id), accountOf(req)));
+    const userId = String(req.user.id);
+    const account = accountOf(req);
+    const since = Number(req.query.since);
+    if (Number.isInteger(since) && since >= 0) {
+        const gone = new AbortController();
+        res.on("close", () => gone.abort());
+        await trading.waitForTrades(userId, account, since, LIVE_WAIT_MS, gone.signal);
+        if (gone.signal.aborted) return;
+    }
+    // Version first: a change while the list is built is then picked up by the next request
+    const version = trading.tradesVersion(userId, account);
+    res.json({ ...(await trading.getTrades(userId, account)), version });
 });
 
-router.post("/trades/:contractId/sell", tradeLimiter, protectFast, async (req, res) => {
+router.post("/trades/:contractId/sell", tradeLimiter, protectFast, requireTrader, async (req, res) => {
     if (!trading) return unavailable(res);
     const contractId = Number(req.params.contractId);
     if (!Number.isInteger(contractId) || contractId <= 0) return res.status(400).json({ ok: false, message: "Invalid trade" });

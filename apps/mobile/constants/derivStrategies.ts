@@ -2,9 +2,10 @@
 // screen design in app/deriv/strategy/[id].tsx:
 //   'trend'  -> big price chart, ups vs downs
 //   'digits' -> last-digit statistics grid (digit contracts settle on the price's last digit)
+//   'pots'   -> the Split Money screen (app/deriv/split-money.tsx): money split into pots and banks
 import type { Ionicons } from '@expo/vector-icons';
 
-export type StrategyLayout = 'trend' | 'digits';
+export type StrategyLayout = 'trend' | 'digits' | 'pots';
 
 export interface DerivStrategy {
     id: string;
@@ -18,10 +19,21 @@ export interface DerivStrategy {
     sides: [string, string];
     /** Does the user also pick a digit (barrier / prediction)? */
     needsDigit?: boolean;
-    risk: 'Lower' | 'Medium' | 'Higher';
+    risk: 'Safest' | 'Lower' | 'Medium' | 'Higher';
 }
 
 export const DERIV_STRATEGIES: DerivStrategy[] = [
+    {
+        id: 'split-money',
+        name: 'Split Money',
+        summary: 'Trade from small pots, with banks that lend',
+        howItWorks:
+            'Your balance is split into small pots. Every trade can only use the money in the pot you pick, and an empty pot is locked. Banks above the pots lend to them, and every loan must be paid back.',
+        icon: 'grid-outline',
+        layout: 'pots',
+        sides: ['', ''],
+        risk: 'Safest',
+    },
     {
         id: 'rise-fall',
         name: 'Rise / Fall',

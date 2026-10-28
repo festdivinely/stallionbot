@@ -111,11 +111,24 @@ export const protectFast = asyncHandler(async (req, res, next) => {
     const cached = userCache.get(decoded.userId);
     let user = cached && Date.now() - cached.at < USER_CACHE_MS ? cached.user : null;
     if (!user) {
-        user = await Users.findById(decoded.userId).select("-password -sessions -emailVerifyToken");
-        if (!user) {
+        let found;
+        try {
+            found = await Users.findById(decoded.userId).select("-password -sessions -emailVerifyToken");
+        } catch (error) {
+            // Database unreachable for a moment (network timeout): the token is valid, so keep
+            // serving with the last known user rather than failing; with none, say "busy" (503)
+            console.warn("User lookup failed, database unreachable", { error: error.message });
+            if (cached) {
+                req.user = cached.user;
+                return next();
+            }
+            return res.status(503).json({ message: "Server busy, please try again" });
+        }
+        if (!found) {
             userCache.delete(decoded.userId);
             return res.status(401).json({ message: "User not found" });
         }
+        user = found;
         userCache.set(decoded.userId, { user, at: Date.now() });
     }
     if (!user.isActive) return res.status(403).json({ message: "User account is inactive" });
@@ -123,6 +136,25 @@ export const protectFast = asyncHandler(async (req, res, next) => {
     req.user = user;
     next();
 });
+
+// The server trades with ONE Deriv account (the owner's token in server/.env). Anyone can sign up
+// to the app, so only the emails listed in TRADER_EMAILS (comma separated) may see that account's
+// balance, get quotes, trade or use the Split Money strategy. With no list set, nobody can.
+const traderEmails = () =>
+    (process.env.TRADER_EMAILS || "")
+        .split(",")
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean);
+
+/** Use after protect / protectFast: only allowed traders get through. */
+export const requireTrader = (req, res, next) => {
+    const email = String(req.user?.email || "").toLowerCase();
+    if (!email || !traderEmails().includes(email)) {
+        console.warn("Trading blocked: not an allowed trader", { userId: req.user?.id, route: req.originalUrl });
+        return res.status(403).json({ ok: false, message: "This account is not allowed to trade. Ask the app owner for access." });
+    }
+    next();
+};
 
 export const requireRole = (roles) => {
     return asyncHandler(async (req, res, next) => {

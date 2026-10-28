@@ -166,7 +166,8 @@ api.interceptors.response.use(
         return new Promise((resolve, reject) => {
           pendingRequests.push((newToken) => {
             if (!newToken) {
-              logger.error("Refresh failed in queue", { url });
+              // Usually a temporary server/network problem; a real login problem logs out below
+              console.warn("Refresh failed in queue", { url });
               reject(new Error("Session expired, please log in again"));
             } else {
               if (originalRequest.headers) {
@@ -199,10 +200,11 @@ api.interceptors.response.use(
         return api(originalRequest);
 
       } catch (refreshError: any) {
-        logger.error("Token refresh failed", {
+        // A warning, not a red error: the app handles it (logs out only on 401, otherwise retries)
+        console.warn("Token refresh failed", {
           url,
+          status: refreshError.response?.status,
           error: refreshError.message,
-          response: refreshError.response?.data,
         });
 
         // Clear the queue with error

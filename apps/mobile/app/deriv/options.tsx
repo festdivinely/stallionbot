@@ -19,6 +19,9 @@ import AssetPicker from '../../components/deriv/AssetPicker';
 import Sheet from '../../components/deriv/Sheet';
 import AccountSwitch, { REAL_COLOR } from '../../components/deriv/AccountSwitch';
 import ContractCard, { CONTRACT_LABELS } from '../../components/deriv/ContractCard';
+import TradeExplanation from '../../components/deriv/TradeExplanation';
+import PotBar from '../../components/deriv/PotBar';
+import { potName, usd } from '../../hooks/useSplitMoney';
 import { useAccountStore } from '../../store/accountStore';
 import { PRICE_DOWN, PRICE_UP, withAlpha } from '../../components/welcome/welcomePalette';
 import { useLiveTicks } from '../../hooks/useLiveTicks';
@@ -252,6 +255,46 @@ export default function OptionsTrading() {
     const isReal = mode === 'real';
     const trades = useTrades(focused, mode);
     const [buying, setBuying] = useState<string | null>(null);
+
+    // The trade whose live progress card is showing: the one just bought, until the trader closes
+    // it (✕), leaves the screen, or picks another market, trade type or account. The trade itself
+    // carries on either way and its result appears under "Other trades".
+    const [shownId, setShownId] = useState<number | null>(null);
+    useEffect(() => setShownId(null), [symbol, tradeTypeId, mode]);
+    useEffect(() => {
+        if (!focused) setShownId(null);
+    }, [focused]);
+    const shownTrade = trades.data ? [...trades.data.open, ...trades.data.recent].find((t) => t.contractId === shownId) : undefined;
+    const otherTrades = trades.data
+        ? [...trades.data.open, ...trades.data.recent].filter((t) => t.contractId !== shownId).sort((a, b) => b.purchaseTime - a.purchaseTime)
+        : [];
+
+    // Split Money strategy (when it's on): every trade comes out of the chosen pot. The server checks
+    // again before buying; this only explains the limits up front.
+    const strategy = trades.data?.strategy ?? null;
+    const [potId, setPotId] = useState<string | null>(lastPotId);
+    useEffect(() => {
+        lastPotId = potId;
+    }, [potId]);
+    useEffect(() => {
+        // First time (or the pot is gone): start with the first section that isn't locked
+        if (!strategy || strategy.pots.some((p) => p.id === potId)) return;
+        setPotId([...strategy.pots].sort((a, b) => a.layer - b.layer).find((p) => !p.locked)?.id ?? null);
+    }, [strategy, potId]);
+    const pot = strategy?.pots.find((p) => p.id === potId);
+    const potProblem = !strategy
+        ? null
+        : strategy.pause
+          ? `Split Money is paused: ${strategy.pause.text}`
+          : !pot
+            ? 'Every pot is locked. Lend money to one on the Split Money screen.'
+            : pot.locked
+              ? `${pot.label} is locked. Pick another pot, or lend it money.`
+              : settings && Number(settings.stake) > pot.maxStake
+                ? `${pot.label} can stake at most ${usd(pot.maxStake)} now.`
+                : settings && Number(settings.stake) > strategy.dailyRoom
+                  ? `Today's Split Money loss cap leaves room for ${usd(strategy.dailyRoom)} only.`
+                  : null;
     const [flash, setFlash] = useState<{ text: string; ok: boolean } | null>(null);
     useEffect(() => {
         if (!flash) return;
@@ -269,6 +312,10 @@ export default function OptionsTrading() {
             Alert.alert(label, q?.message || 'Waiting for a price from Deriv.');
             return;
         }
+        if (potProblem) {
+            Alert.alert(label, potProblem);
+            return;
+        }
         // Real money: one clear confirmation per trade
         if (isReal) {
             const confirmed = await new Promise<boolean>((resolve) =>
@@ -280,7 +327,7 @@ export default function OptionsTrading() {
             if (!confirmed) return;
         }
         setBuying(side.contractType);
-        const result = await placeTrade(buildRequest(symbol, tradeType, settings, side), mode);
+        const result = await placeTrade(buildRequest(symbol, tradeType, settings, side), mode, strategy && potId ? potId : undefined);
         setBuying(null);
         if (result.ok && result.trade) {
             setFlash({
@@ -289,6 +336,7 @@ export default function OptionsTrading() {
             });
             // Show the trade's card at once; the live ticks follow with the next refresh
             trades.addTrade({ ...result.trade, path: result.trade.path ?? [] });
+            setShownId(result.trade.contractId);
             trades.refresh();
         } else {
             Alert.alert('Trade not placed', result.message || 'Nothing was bought.');
@@ -321,6 +369,9 @@ export default function OptionsTrading() {
                         </Text>
                     </View>
                 )}
+                {/* Split Money: the pot to trade from */}
+                {strategy && <PotBar strategy={strategy} selected={potId} onSelect={setPotId} />}
+
                 {/* Price and chart */}
                 <View style={[styles.card, { backgroundColor: colors.cardBackground, borderColor: colors.border }]}>
                     <View style={styles.priceRow}>
@@ -379,6 +430,11 @@ export default function OptionsTrading() {
                                 Stake {tradeType.minStake ?? 0} – {tradeType.maxStake ?? '∞'}
                             </Text>
                         )}
+                        {strategy && pot && (
+                            <Text style={[styles.hint, { color: potProblem ? PRICE_DOWN : colors.textSecondary }]}>
+                                From {pot.label}: up to {usd(pot.maxStake)}
+                            </Text>
+                        )}
                     </View>
                 ) : tradeTypes.error ? (
                     <View style={[styles.card, { backgroundColor: colors.cardBackground, borderColor: colors.border, alignItems: 'center', gap: 10 }]}>
@@ -409,7 +465,7 @@ export default function OptionsTrading() {
                             return (
                                 <TouchableOpacity
                                     key={side.contractType}
-                                    style={[styles.sideButton, { backgroundColor: q && !q.ok ? withAlpha(tone, 0.45) : tone }]}
+                                    style={[styles.sideButton, { backgroundColor: (q && !q.ok) || potProblem ? withAlpha(tone, 0.45) : tone }]}
                                     onPress={() => onSide(side, label, q)}
                                     disabled={!!buying}
                                     activeOpacity={0.85}
@@ -451,10 +507,23 @@ export default function OptionsTrading() {
                     {trades.data ? ` · you can still risk ${trades.data.risk.lossRoomLeft.toFixed(2)} today` : ''}.
                 </Text>
 
-                {/* Open and finished trades */}
-                {trades.data && (trades.data.open.length > 0 || trades.data.recent.length > 0) && (
-                    <TradesList open={trades.data.open} recent={trades.data.recent} currency={trades.data.balance?.currency} onSell={onSell} />
+                {/* Live progress of the trade just bought */}
+                {shownTrade && (
+                    <LiveTrade trade={shownTrade} currency={trades.data?.balance?.currency} onSell={onSell} onClose={() => setShownId(null)} />
                 )}
+
+                {/* How the chosen trade type works, and what Deriv says you're buying */}
+                {tradeType && (
+                    <TradeExplanation
+                        tradeType={tradeType}
+                        quotes={sideQuotes}
+                        prices={quotes}
+                        decimals={asset?.pipSize ? Math.max(0, Math.round(-Math.log10(asset.pipSize))) : 2}
+                    />
+                )}
+
+                {/* Every other trade, running or finished */}
+                {otherTrades.length > 0 && <OtherTrades trades={otherTrades} />}
             </KeyboardSafeScroll>
 
             <AssetPicker
@@ -497,53 +566,42 @@ export default function OptionsTrading() {
     );
 }
 
+// The Split Money pot last traded from, kept while the app runs (so coming back keeps the choice)
+let lastPotId: string | null = null;
+
 const money = (n: number) => `${n >= 0 ? '+' : '−'}${Math.abs(n).toFixed(2)}`;
 
-/**
- * Your trades: the selected one (by default the newest) as a big live card with its tick chart
- * (components/deriv/ContractCard.tsx), the others as small rows; tap a row to show its card.
- */
-function TradesList({ open, recent, currency, onSell }: { open: Trade[]; recent: Trade[]; currency?: string; onSell: (t: Trade) => void }) {
-    const { colors } = useThemeStore();
-    const all = [...open, ...recent].sort((a, b) => b.purchaseTime - a.purchaseTime);
-    const newestId = all[0]?.contractId;
-    const [selectedId, setSelectedId] = useState<number | undefined>(newestId);
-    // A new trade was bought: show it straight away
-    const lastNewest = useRef(newestId);
-    useEffect(() => {
-        if (newestId !== lastNewest.current) {
-            lastNewest.current = newestId;
-            setSelectedId(newestId);
-        }
-    }, [newestId]);
+/** The live progress card (components/deriv/ContractCard.tsx) of the trade just bought. */
+function LiveTrade({ trade, currency, onSell, onClose }: { trade: Trade; currency?: string; onSell: (t: Trade) => void; onClose: () => void }) {
     // Re-render every second so "time left" counts down between server updates
     const [, setNow] = useState(0);
+    const running = trade.status === 'open';
     useEffect(() => {
-        if (!open.length) return;
+        if (!running) return;
         const t = setInterval(() => setNow(Date.now()), 1000);
         return () => clearInterval(t);
-    }, [open.length]);
-
-    const selected = all.find((t) => t.contractId === selectedId) ?? all[0];
-    const others = all.filter((t) => t !== selected);
-
+    }, [running]);
     return (
         <View style={{ marginTop: 14 }}>
-            {selected && <ContractCard trade={selected} currency={currency} onSell={onSell} />}
+            <ContractCard trade={trade} currency={currency} onSell={onSell} onClose={onClose} />
+        </View>
+    );
+}
 
-            {others.length > 0 && <Text style={[styles.listTitle, { color: colors.textPrimary, marginTop: 4 }]}>Other trades</Text>}
-            {others.map((t) => {
+/** Every other trade as a small row: what it was, its stake, and how it is going or went. */
+function OtherTrades({ trades }: { trades: Trade[] }) {
+    const { colors } = useThemeStore();
+    return (
+        <View style={{ marginTop: 18 }}>
+            <Text style={[styles.listTitle, { color: colors.textPrimary }]}>Other trades</Text>
+            {trades.map((t) => {
                 const isOpen = t.status === 'open';
                 const won = t.profit > 0;
                 const tone = isOpen ? colors.textSecondary : won ? PRICE_UP : PRICE_DOWN;
                 return (
-                    <TouchableOpacity
+                    <View
                         key={t.contractId}
-                        onPress={() => setSelectedId(t.contractId)}
                         style={[styles.card, styles.tradeCard, { backgroundColor: colors.cardBackground, borderColor: colors.border }]}
-                        activeOpacity={0.8}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Show ${CONTRACT_LABELS[t.contractType] ?? t.contractType} on ${t.symbol}`}
                     >
                         <View style={{ flex: 1 }}>
                             <Text style={[styles.tradeTitle, { color: colors.textPrimary }]}>
@@ -551,6 +609,7 @@ function TradesList({ open, recent, currency, onSell }: { open: Trade[]; recent:
                             </Text>
                             <Text style={[styles.tradeSub, { color: colors.textSecondary }]}>
                                 Stake {t.buyPrice.toFixed(2)} · {new Date(t.purchaseTime * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                {t.potId ? ` · ${potName(t.potId)}` : ''}
                             </Text>
                         </View>
                         <View style={{ alignItems: 'flex-end' }}>
@@ -559,7 +618,7 @@ function TradesList({ open, recent, currency, onSell }: { open: Trade[]; recent:
                                 {isOpen ? 'In progress' : t.status === 'sold' ? 'Sold' : won ? 'Won' : t.status === 'cancelled' ? 'Cancelled' : 'Lost'}
                             </Text>
                         </View>
-                    </TouchableOpacity>
+                    </View>
                 );
             })}
         </View>

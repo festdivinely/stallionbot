@@ -1,4 +1,24 @@
 // middleware/trimMiddleware.js
+
+/** True if a value contains an object key that MongoDB would read as a command ($ne, $gt...) or a path (a.b). */
+function hasMongoOperator(value, depth = 0) {
+    if (depth > 20 || value === null || typeof value !== 'object') return false;
+    if (Array.isArray(value)) return value.some((v) => hasMongoOperator(v, depth + 1));
+    return Object.keys(value).some((k) => k.startsWith('$') || k.includes('.') || hasMongoOperator(value[k], depth + 1));
+}
+
+/**
+ * Refuses any request whose body, query or URL parameters contain database command keys. Without
+ * this, sending e.g. {"code": {"$ne": null}} instead of a code would match any user's code.
+ */
+export const rejectMongoOperators = (req, res, next) => {
+    if (hasMongoOperator(req.body) || hasMongoOperator(req.query) || hasMongoOperator(req.params)) {
+        console.warn('Blocked a request with database operators', { method: req.method, path: req.path, ip: req.ip });
+        return res.status(400).json({ message: 'Invalid request' });
+    }
+    next();
+};
+
 export const trimRequestBody = (req, res, next) => {
     // Helper function to clean a value
     const cleanValue = (value) => {

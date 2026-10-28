@@ -3,6 +3,7 @@ import "dotenv/config";
 import { connectDb } from "./config/mongodb.config.js";
 import app from "./app.js";
 import http from "http";
+import { startKeepAlive } from "./utils/keepAlive.js";
 
 // Log server startup
 console.info("Starting server for Render deployment", {
@@ -39,10 +40,13 @@ process.on("unhandledRejection", (reason, promise) => {
 // Graceful shutdown handler for Render
 process.on('SIGTERM', () => {
     console.info('SIGTERM received, starting graceful shutdown');
-    server.close(() => {
-        console.info('HTTP server closed');
-        process.exit(0);
-    });
+    // `server` is the promise from initializeServer(): wait for the real server before closing it
+    Promise.resolve(server).then((s) =>
+        s.close(() => {
+            console.info('HTTP server closed');
+            process.exit(0);
+        })
+    );
 });
 
 // MongoDB connection with retry (optimized for Render)
@@ -97,6 +101,8 @@ const initializeServer = async () => {
                     environment: process.env.NODE_ENV,
                     url: `http://0.0.0.0:${PORT}`
                 });
+                // Free hosting plans sleep without visits: keep ourselves awake (utils/keepAlive.js)
+                startKeepAlive();
             })
             .on('error', (error) => {
                 console.error("Failed to start Express server", {

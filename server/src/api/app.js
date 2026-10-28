@@ -10,6 +10,8 @@ import { dbHealthCheck, connectDb } from './config/mongodb.config.js'; // Import
 import authRoutes from "./routes/authRoutes.js";
 import botRoutes from "./routes/botRoutes.js";
 import marketRoutes from "./routes/marketRoutes.js";
+import strategyRoutes from "./routes/strategyRoutes.js";
+import { rejectMongoOperators } from "./middleware/trimMiddleware.js";
 
 
 dotenv.config();
@@ -48,6 +50,8 @@ if (process.env.NODE_ENV === "development") {
 // Public live prices. Mounted BEFORE the global /api limiter on purpose: the app polls this about
 // once a second, so it has its own per-minute limit in marketRoutes.js.
 app.use("/api/market", marketRoutes);
+// Split Money strategy: also has its own per-minute limit (strategyRoutes.js)
+app.use("/api/strategy", strategyRoutes);
 
 // ==================
 // Rate Limiting
@@ -110,6 +114,8 @@ app.use((req, res, next) =>
     (req.path === '/api/auth/profile/image' ? jsonProfileImage : jsonDefault)(req, res, next)
 );
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+// No database command keys ($ne, $gt...) in any request: blocks NoSQL injection (trimMiddleware.js)
+app.use(rejectMongoOperators);
 
 // ==================
 // Health Check Route

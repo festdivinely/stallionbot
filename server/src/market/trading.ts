@@ -10,8 +10,19 @@
 
 import type { DerivMessage } from "../deriv/socket.js";
 import type { AccountType } from "../deriv/rest.js";
-import { accountFor, followBalance, getSharedSocket, liveBalance, request, setBalance } from "../deriv/shared.js";
+import { accountFor, followBalance, getSharedSocket, liveBalance, onBalanceChange, request, setBalance } from "../deriv/shared.js";
 import { cancelPending, checkTrade, recordBuy, recordSettled, riskSummary } from "../risk/index.js";
+import {
+  checkDerivBalance,
+  confirmPotTrade,
+  ensureLoaded,
+  onPotsChange,
+  onRestoreOpenTrades,
+  releasePotTrade,
+  reservePotTrade,
+  settlePotTrade,
+  summaryOf,
+} from "../risk/splitMoney.js";
 import type { QuoteParams } from "./catalog.js";
 
 const RECENT_PER_USER = 20; // finished trades kept per user and account
@@ -46,11 +57,21 @@ export interface TradeRecord {
   /** Decimals Deriv quotes the price with (from its own text), for showing prices exactly */
   decimals?: number;
   /** Every price during the contract, oldest first: epoch seconds + price. For the live chart. */
-  path: { t: number; q: number }[];
+  /** `s` = the price exactly as Deriv shows it (for the true last digit), when Deriv sends it */
+  path: { t: number; q: number; s?: string }[];
+  /** Reset Call/Put: when the reset check happens, and the barrier after it (if it moved) */
+  resetTime?: number;
+  resetBarrier?: number;
+  /** High/Low Ticks: which tick (1-5) the trader picked, and its price once it has happened */
+  selectedTick?: number;
+  selectedSpot?: number;
+  /** Split Money strategy: the pot this trade's stake came from */
+  potId?: string;
   subscriptionId?: string;
 }
 
 const MAX_PATH = 600; // long contracts: keep the chart light
+const FOLLOW_BACKUP_MS = 1500;
 
 /** Deriv sends prices and barriers as text ("4962.12"); numbers otherwise. */
 const toNum = (v: unknown): number | undefined => {
@@ -98,8 +119,95 @@ interface OpenContractMessage extends DerivMessage {
     is_valid_to_sell?: number;
     bid_price?: number | string;
     sell_price?: string | number | null;
+    reset_time?: number | null;
+    reset_barrier?: string | number | null;
+    selected_tick?: number | null;
+    selected_spot?: string | number | null;
+    // Also in every update; used to fill in trades picked up again after a restart
+    contract_type?: string;
+    underlying_symbol?: string;
+    buy_price?: number | string;
+    payout?: number | string;
+    longcode?: string;
+    purchase_time?: number;
   };
   subscription?: { id: string };
+}
+
+// ---- Telling the app about changes the moment they happen ("long polling") ----
+// The app asks "anything newer than version N?" and the server holds that request open until a
+// trade of that user changes (a tick, the result, a new buy), then answers at once. So every tick
+// reaches the phone right away instead of waiting for the app's next poll.
+const versions = new Map<string, number>();
+const waiters = new Map<string, Set<() => void>>();
+const userKey = (userId: string, type: AccountType) => `${type}:${userId}`;
+
+export const tradesVersion = (userId: string, type: AccountType) => versions.get(userKey(userId, type)) ?? 0;
+
+function notify(userId: string, type: AccountType): void {
+  const key = userKey(userId, type);
+  versions.set(key, tradesVersion(userId, type) + 1);
+  const waiting = waiters.get(key);
+  if (!waiting) return;
+  waiters.delete(key);
+  for (const wake of waiting) wake();
+}
+
+// A new balance (e.g. a win paid out) wakes everyone watching that account
+onBalanceChange((type) => {
+  for (const key of new Set([...waiters.keys(), ...versions.keys()])) {
+    if (key.startsWith(`${type}:`)) notify(key.slice(type.length + 1), type);
+  }
+  // Split Money: pause any strategy whose pots now hold more than the account really has
+  const b = liveBalance(type);
+  if (b) checkDerivBalance(type, b.balance);
+});
+
+// Split Money: pot balances changed (a trade settled, a loan was collected...): wake the app
+onPotsChange((userId, type) => notify(userId, type));
+
+// Split Money after a server restart: follow the strategy's trades that were still running, so
+// their results still go back into their pots
+onRestoreOpenTrades((userId, type, open) => {
+  start(type);
+  for (const o of open) {
+    const key = keyOf(type, o.contractId);
+    if (trades.has(key)) continue;
+    trades.set(key, {
+      contractId: o.contractId,
+      userId,
+      accountType: type,
+      symbol: o.symbol ?? "",
+      contractType: o.contractType ?? "",
+      longcode: "",
+      buyPrice: o.stake,
+      payout: 0,
+      purchaseTime: Math.floor(Date.now() / 1000),
+      status: "open",
+      profit: 0,
+      canSell: false,
+      path: [],
+      potId: o.potId,
+    });
+    follow(type, o.contractId);
+  }
+});
+
+/** Resolves when this user's trades change after `since`, or after `timeoutMs` (whichever is first). */
+export function waitForTrades(userId: string, type: AccountType, since: number, timeoutMs: number, signal: AbortSignal): Promise<void> {
+  if (tradesVersion(userId, type) > since) return Promise.resolve();
+  return new Promise((resolve) => {
+    const key = userKey(userId, type);
+    const done = () => {
+      clearTimeout(timer);
+      waiters.get(key)?.delete(done);
+      resolve();
+    };
+    const timer = setTimeout(done, timeoutMs);
+    signal.addEventListener("abort", done, { once: true });
+    if (!waiters.has(key)) waiters.set(key, new Set());
+    waiters.get(key)!.add(done);
+  });
 }
 
 function follow(type: AccountType, contractId: number): void {
@@ -128,6 +236,12 @@ function start(type: AccountType): void {
     const set = <K extends keyof TradeRecord>(key: K, value: TradeRecord[K] | undefined) => {
       if (value !== undefined) t[key] = value;
     };
+    // A trade picked up again after a restart starts with blanks: fill them from Deriv
+    if (!t.contractType && c.contract_type) t.contractType = c.contract_type;
+    if (!t.symbol && c.underlying_symbol) t.symbol = c.underlying_symbol;
+    if (!t.longcode && c.longcode) t.longcode = c.longcode;
+    if (!t.payout) set("payout", toNum(c.payout));
+    if (c.purchase_time && !t.path.length) t.purchaseTime = c.purchase_time;
     set("profit", toNum(c.profit));
     set("currentSpot", toNum(c.current_spot));
     set("entrySpot", toNum(c.entry_spot));
@@ -143,13 +257,19 @@ function start(type: AccountType): void {
     set("ticksPassed", c.tick_passed);
     set("bidPrice", toNum(c.bid_price));
     set("sellPrice", toNum(c.sell_price));
+    set("resetTime", c.reset_time ?? undefined);
+    set("resetBarrier", toNum(c.reset_barrier));
+    set("selectedTick", c.selected_tick ?? undefined);
+    set("selectedSpot", toNum(c.selected_spot));
     set("decimals", decimalsOf(c.current_spot) ?? decimalsOf(c.entry_spot) ?? t.decimals);
     t.canSell = c.is_valid_to_sell === 1;
 
     // The price path for the chart. Tick contracts come with the whole tick stream; others get one
     // update per price change, starting at the entry spot.
     if (c.tick_stream?.length) {
-      t.path = c.tick_stream.filter((s) => typeof s.tick === "number").map((s) => ({ t: s.epoch, q: s.tick as number }));
+      t.path = c.tick_stream
+        .filter((s) => typeof s.tick === "number")
+        .map((s) => ({ t: s.epoch, q: s.tick as number, ...(s.tick_display_value ? { s: s.tick_display_value } : {}) }));
     } else {
       if (!t.path.length) addPoint(t, t.entrySpotTime, t.entrySpot);
       addPoint(t, c.current_spot_time, toNum(c.current_spot));
@@ -160,6 +280,7 @@ function start(type: AccountType): void {
       t.status = c.status === "won" || c.status === "lost" || c.status === "cancelled" ? c.status : "sold";
       t.canSell = false;
       recordSettled(t.userId, type, t.contractId, t.profit);
+      settlePotTrade(t.userId, type, t.contractId, t.profit);
       if (t.subscriptionId) {
         try {
           getSharedSocket(type).send({ forget: t.subscriptionId });
@@ -169,6 +290,7 @@ function start(type: AccountType): void {
       }
       prune(t.userId, type);
     }
+    notify(t.userId, type);
   });
 }
 
@@ -183,7 +305,7 @@ function prune(userId: string, type: AccountType): void {
 export type TradeResult = { ok: true; trade: ReturnType<typeof publicView> } | { ok: false; message: string };
 
 /** Risk check, then buy on the chosen account. */
-export async function placeTrade(userId: string, p: QuoteParams, type: AccountType): Promise<TradeResult> {
+export async function placeTrade(userId: string, p: QuoteParams, type: AccountType, potId?: string): Promise<TradeResult> {
   const startedAt = Date.now();
   const account = await accountFor(type).catch(() => null); // remembered list: no web request
   if (!account) {
@@ -192,9 +314,21 @@ export async function placeTrade(userId: string, p: QuoteParams, type: AccountTy
       message: type === "real" ? "No real Deriv account is connected yet. Open one on Deriv, then try again." : "The demo account is not available right now.",
     };
   }
+  // The Split Money pots (already in memory after the first load, so normally no wait here)
+  try {
+    await ensureLoaded(userId, type);
+  } catch {
+    return { ok: false, message: "Could not check your Split Money pots right now. Nothing was bought; try again." };
+  }
   start(type);
   const risk = checkTrade(userId, type, p.amount);
   if (!risk.ok) return { ok: false, message: risk.reason };
+  // Split Money: the stake must fit in the chosen pot (taken out of it now, given back if the buy fails)
+  const pot = reservePotTrade(userId, type, potId, p.amount);
+  if (!pot.ok) {
+    cancelPending(userId, type);
+    return { ok: false, message: pot.message };
+  }
 
   try {
     const parameters: Record<string, unknown> = {
@@ -220,14 +354,18 @@ export async function placeTrade(userId: string, p: QuoteParams, type: AccountTy
 
     // price = the most we agree to pay; with basis "stake" that is the stake itself
     const sentAt = Date.now();
-    const msg = await request({ buy: 1, price: p.amount, parameters }, type);
+    // subscribe: 1 makes Deriv stream this contract's updates straight after the buy, with no
+    // separate "follow this contract" request (saves a round trip before the first tick shows)
+    const msg = await request({ buy: 1, price: p.amount, parameters, subscribe: 1 }, type);
     const derivMs = Date.now() - sentAt;
     if (msg.error) {
       cancelPending(userId, type);
+      releasePotTrade(userId, type, potId);
       return { ok: false, message: msg.error.message };
     }
     const b = msg.buy as { contract_id: number; longcode: string; buy_price: number; payout: number; purchase_time: number; balance_after?: number | string };
     recordBuy(userId, type, b.contract_id, b.buy_price);
+    confirmPotTrade(userId, type, potId, b.contract_id, b.buy_price, { symbol: p.symbol, contractType: p.contractType });
     if (b.balance_after !== undefined) setBalance(type, Number(b.balance_after), account.currency);
     const trade: TradeRecord = {
       contractId: b.contract_id,
@@ -243,9 +381,17 @@ export async function placeTrade(userId: string, p: QuoteParams, type: AccountTy
       profit: 0,
       canSell: false,
       path: [],
+      // Known from the order itself, before Deriv's first update arrives
+      ...(p.selectedTick !== undefined ? { selectedTick: p.selectedTick } : {}),
+      ...(p.contractType.startsWith("DIGIT") && p.barrier !== undefined ? { barrier: Number(p.barrier) } : {}),
+      ...(potId ? { potId } : {}),
     };
     trades.set(keyOf(type, trade.contractId), trade);
-    follow(type, trade.contractId);
+    notify(userId, type);
+    // Backup: if the buy's own stream sends nothing, follow the contract the usual way
+    setTimeout(() => {
+      if (!trade.subscriptionId && trade.status === "open") follow(type, trade.contractId);
+    }, FOLLOW_BACKUP_MS);
     console.info("[trade] bought", {
       userId,
       account: type,
@@ -259,6 +405,7 @@ export async function placeTrade(userId: string, p: QuoteParams, type: AccountTy
     return { ok: true, trade: publicView(trade) };
   } catch (err) {
     cancelPending(userId, type);
+    releasePotTrade(userId, type, potId);
     console.error("[trade] buy failed:", (err as Error).message);
     return { ok: false, message: "Could not reach Deriv to place the trade. Nothing was bought." };
   }
@@ -289,17 +436,29 @@ function balanceOf(type: AccountType, a: { balance: string; currency: string } |
 export async function getTrades(userId: string, type: AccountType) {
   const account = await accountFor(type).catch(() => null);
   if (account) start(type);
+  // Split Money pots: loaded here so they are ready before the first buy
+  await ensureLoaded(userId, type).catch(() => null);
   const mine = [...trades.values()]
     .filter((t) => t.userId === userId && t.accountType === type)
     .sort((a, b) => b.purchaseTime - a.purchaseTime);
+  const balance = balanceOf(type, account);
+  if (balance) checkDerivBalance(type, balance.balance);
   return {
     account: type,
     available: !!account,
-    balance: balanceOf(type, account),
+    balance,
     open: mine.filter((t) => t.status === "open").map(publicView),
     recent: mine.filter((t) => t.status !== "open").map(publicView),
     risk: riskSummary(userId, type),
+    // Split Money pots when the strategy is on (null otherwise)
+    strategy: summaryOf(userId, type),
   };
+}
+
+/** This account's balance now (null when the account isn't available). */
+export async function balanceFor(type: AccountType): Promise<number | null> {
+  const account = await accountFor(type).catch(() => null);
+  return balanceOf(type, account)?.balance ?? null;
 }
 
 /** Both accounts and their balances, for the Demo/Real switch. */

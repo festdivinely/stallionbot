@@ -1,9 +1,10 @@
 // Deriv options market data from our backend (server/src/market/catalog.ts), which reads it live
 // from Deriv: the asset list, the trade types each asset allows, and price quotes.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 import api from '../apis/authApi';
 import type { AccountMode } from '../store/accountStore';
+import type { StrategySummary } from './useSplitMoney';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
@@ -188,8 +189,16 @@ export interface Trade {
     exitSpotTime?: number;
     /** Decimals Deriv quotes the price with */
     decimals?: number;
-    /** Every price during the contract, oldest first (epoch seconds, price) */
-    path: { t: number; q: number }[];
+    /** Every price during the contract, oldest first (epoch seconds, price, price text as Deriv shows it) */
+    path: { t: number; q: number; s?: string }[];
+    /** Reset Call/Put: when the reset check happens, and the barrier after it */
+    resetTime?: number;
+    resetBarrier?: number;
+    /** High/Low Ticks: the tick (1-5) the trader picked, and its price once it happened */
+    selectedTick?: number;
+    selectedSpot?: number;
+    /** Split Money: the pot this trade's stake came from */
+    potId?: string;
 }
 
 export interface TradesState {
@@ -205,12 +214,19 @@ export interface TradesState {
         netProfitToday: number;
         lossRoomLeft: number;
     };
+    /** Split Money pots while the strategy is on, else null */
+    strategy?: StrategySummary | null;
 }
 
 /** Buys on the given account (demo or real). The server checks the risk limits first; `message` says why not. */
-export async function placeTrade(req: QuoteRequest, account: AccountMode): Promise<{ ok: boolean; trade?: Trade; message?: string }> {
+export async function placeTrade(
+    req: QuoteRequest,
+    account: AccountMode,
+    potId?: string
+): Promise<{ ok: boolean; trade?: Trade; message?: string }> {
     try {
-        const { data } = await api.post(`/api/market/trade?account=${account}`, req);
+        // Never retried automatically: a repeated buy would buy twice
+        const { data } = await api.post(`/api/market/trade?account=${account}`, potId ? { ...req, potId } : req, { 'axios-retry': { retries: 0 } } as any);
         return data;
     } catch (e: any) {
         return { ok: false, message: e.response?.data?.message || 'Could not place the trade. Nothing was bought.' };
@@ -220,7 +236,7 @@ export async function placeTrade(req: QuoteRequest, account: AccountMode): Promi
 /** Closes an open trade now, at the market price. */
 export async function sellTrade(contractId: number, account: AccountMode): Promise<{ ok: boolean; message?: string }> {
     try {
-        const { data } = await api.post(`/api/market/trades/${contractId}/sell?account=${account}`);
+        const { data } = await api.post(`/api/market/trades/${contractId}/sell?account=${account}`, undefined, { 'axios-retry': { retries: 0 } } as any);
         return data;
     } catch (e: any) {
         return { ok: false, message: e.response?.data?.message || 'Could not sell right now.' };
@@ -259,51 +275,65 @@ export function useAccounts(active: boolean, everyMs = 5000) {
     return data;
 }
 
-// While a trade is running, refresh this often so every tick shows up quickly
-const LIVE_TRADE_POLL_MS = 700;
+// After a failed request (no connection, server restarting), wait this long before asking again
+const LIVE_RETRY_MS = 1500;
 
 /**
- * One account's balance, open and recent trades, refreshed every `everyMs` while `active` (the
- * screen is on top and the app is open), and every LIVE_TRADE_POLL_MS while a trade is open.
- * `refresh()` fetches at once; `addTrade()` shows a just-bought trade right away, before the
- * next refresh.
+ * One account's balance, open and recent trades, live while `active` (the screen is on top and
+ * the app is open). Uses "long polling": each request tells the server the last version we have,
+ * and the server answers the moment anything changes (a tick, a result, a new balance), so ticks
+ * and results show up straight away. `addTrade()` shows a just-bought trade at once.
  */
-export function useTrades(active: boolean, account: AccountMode, everyMs = 1500) {
+export function useTrades(active: boolean, account: AccountMode) {
     const [data, setData] = useState<TradesState | null>(null);
-    const [tick, setTick] = useState(0);
-    const hasOpen = useRef(false);
-    hasOpen.current = !!data?.open.length;
+    const [restart, setRestart] = useState(0);
 
     useEffect(() => {
         if (!active) return;
         let cancelled = false;
         let timer: ReturnType<typeof setTimeout> | undefined;
+        const controller = new AbortController();
+        let version: number | undefined; // first request: answer at once
         // Switching account: don't show the other account's trades while the new ones load
         setData((d) => (d && d.account !== account ? null : d));
         const load = async () => {
-            if (AppState.currentState === 'active') {
-                try {
-                    const { data: body } = await api.get(`/api/market/trades?account=${account}`);
-                    if (!cancelled) setData(body);
-                } catch {
-                    // Keep showing the last known state; the next poll tries again
-                }
+            if (cancelled) return;
+            if (AppState.currentState !== 'active') {
+                timer = setTimeout(load, LIVE_RETRY_MS);
+                return;
             }
-            if (!cancelled) timer = setTimeout(load, hasOpen.current ? LIVE_TRADE_POLL_MS : everyMs);
+            try {
+                const since = version === undefined ? '' : `&since=${version}`;
+                const { data: body } = await api.get(`/api/market/trades?account=${account}${since}`, {
+                    signal: controller.signal,
+                    timeout: 30_000, // the server answers within 20 s even when nothing changes
+                    'axios-retry': { retries: 0 },
+                } as any);
+                if (cancelled) return;
+                version = body.version;
+                setData(body);
+                load(); // ask again straight away: the server waits until something new happens
+            } catch {
+                // Keep showing the last known state and try again shortly
+                if (!cancelled) timer = setTimeout(load, LIVE_RETRY_MS);
+            }
         };
         load();
+        // Coming back to the app: the open request may have been dropped, so start a fresh one
+        const sub = AppState.addEventListener('change', (s) => s === 'active' && setRestart((r) => r + 1));
         return () => {
             cancelled = true;
             clearTimeout(timer);
+            controller.abort();
+            sub.remove();
         };
-    }, [active, account, everyMs, tick]);
+    }, [active, account, restart]);
 
-    const addTrade = (trade: Trade) => {
-        hasOpen.current = true;
+    const addTrade = (trade: Trade) =>
         setData((d) => (d ? { ...d, open: [trade, ...d.open.filter((t) => t.contractId !== trade.contractId)] } : d));
-    };
 
-    return { data, refresh: () => setTick((t) => t + 1), addTrade };
+    // The live updates already bring every change; this restarts them (e.g. after a sell)
+    return { data, refresh: () => setRestart((r) => r + 1), addTrade };
 }
 
 /** Which of Deriv's default barriers applies for a duration unit. */

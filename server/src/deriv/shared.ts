@@ -131,6 +131,12 @@ export async function getAccountCurrency(type: AccountType = "demo"): Promise<st
 
 const balances: Partial<Record<AccountType, { balance: number; currency: string }>> = {};
 const balanceFeeds = new Set<AccountType>();
+const balanceHandlers = new Set<(type: AccountType) => void>();
+
+/** Calls `handler` whenever Deriv pushes a new balance for an account. */
+export function onBalanceChange(handler: (type: AccountType) => void): void {
+  balanceHandlers.add(handler);
+}
 
 /** Subscribes to this account's balance (once): Deriv then pushes every change. */
 export function followBalance(type: AccountType): void {
@@ -150,7 +156,10 @@ export function followBalance(type: AccountType): void {
     if (msg.msg_type !== "balance" || msg.error) return;
     const b = msg.balance as { balance: number | string; currency: string };
     const value = Number(b.balance);
-    if (Number.isFinite(value)) balances[type] = { balance: value, currency: b.currency };
+    if (Number.isFinite(value) && value !== balances[type]?.balance) {
+      balances[type] = { balance: value, currency: b.currency };
+      for (const handler of balanceHandlers) handler(type);
+    }
   });
   if (shared[type]?.isOpen) subscribe();
 }
