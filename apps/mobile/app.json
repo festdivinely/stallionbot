@@ -49,7 +49,8 @@
         "expo-image-picker",
         {
           "photosPermission": "Stallion Trader needs access to your photos so you can choose a profile picture.",
-          "cameraPermission": "Stallion Trader needs your camera so you can take a profile picture."
+          "cameraPermission": "Stallion Trader needs your camera so you can take a profile picture.",
+          "microphonePermission": false
         }
       ],
       [
@@ -66,8 +67,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "8c946913-8c46-459d-be9e-5008a7ea087b"
+        "projectId": "2f365ef3-0d67-4f4c-8454-ad3a71309e5a"
       }
-    }
+    },
+    "owner": "fdivinely"
   }
 }

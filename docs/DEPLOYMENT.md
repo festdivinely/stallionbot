@@ -81,13 +81,23 @@ Gmail allows about 500 emails a day, which is plenty for personal use.
    `/health` every 10 minutes.
 7. Restarting the server forgets open-trade cards and today's risk counters. Your Deriv trades themselves are not affected, and Split Money pots are saved.
 
-## 7. Building the APK
+## 7. Building the APK (Expo's cloud build, EAS)
 
-1. Set `EXPO_PUBLIC_API_URL` in `apps/mobile/.env` to the hosted HTTPS address.
-2. Build either way:
-   - **On this PC (no account needed):** `npx expo prebuild -p android`, then `android\gradlew assembleRelease`. Uses the Android SDK and JDK 17 already installed.
-   - **With Expo's build service (EAS):** you sign in to your Expo account yourself (`npx eas login`), then `npx eas build -p android --profile preview`.
-3. Install the `.apk` on your phone (allow "install unknown apps").
+The app is linked to the Expo project **@fdivinely/trading-app-new** (`app.json` → `owner`, `extra.eas.projectId`).
+
+1. The hosted address is set in `apps/mobile/eas.json` → `build.preview.env.EXPO_PUBLIC_API_URL`.
+   (The cloud build does not receive `apps/mobile/.env`, because git ignores it. The address isn't a secret.)
+2. Sign in once yourself: `npx eas-cli@latest login` (opens the browser).
+3. From `apps/mobile`: `npx eas-cli@latest build -p android --profile preview --non-interactive --no-wait`
+   It uploads the app (~18 MB) and builds on Expo's servers; the link to follow it is printed.
+   The app's signing key was created by Expo on the first build and is kept on the Expo account. Keep using the
+   same account, or phones won't accept the update over the old install.
+4. When it says Finished, open the build page on the phone and tap **Install** (allow "install from this source";
+   Play Protect may warn because the app isn't in the Play Store: More details → Install anyway).
+
+**Why not build on this PC:** React Native's native build creates file paths longer than Windows' 260-character
+limit (even from a short folder like `C:\sb`), and the build stops. It would need Windows "long paths" turned on
+plus a newer CMake. The cloud build avoids this, and doesn't depend on this PC's internet once uploaded.
 
 ## 8. Security checklist (checked on 2026-10-28)
 
