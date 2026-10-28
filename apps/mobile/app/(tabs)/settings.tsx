@@ -23,6 +23,14 @@ import { useAuthStore } from '../../store/authStore';
 import UserAvatar from '../../components/UserAvatar';
 import { FONTS } from '../../constants/fonts';
 import { allowQuickLoginOffer, canUseBiometrics, disableQuickLogin, getQuickLoginAccount } from '../../utils/quickLogin';
+import * as Updates from 'expo-updates';
+
+// Which version is running: the one inside the APK, or an over-the-air update (and from when)
+const versionText = () => {
+    if (!Updates.isEnabled) return 'development build';
+    if (Updates.isEmbeddedLaunch || !Updates.createdAt) return 'built-in version';
+    return `update of ${Updates.createdAt.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`;
+};
 
 interface SettingsSection {
     id: string;
@@ -348,7 +356,7 @@ export default function SettingsPage() {
                 </TouchableOpacity>
 
                 <View style={styles.footer}>
-                    <Text style={[styles.footerText, { color: colors.textSecondary }]}>Stallion Trader v1.0.0</Text>
+                    <Text style={[styles.footerText, { color: colors.textSecondary }]}>Stallion Trader v1.0.0 · {versionText()}</Text>
                     <Text style={[styles.footerText, { color: colors.textSecondary }]}>© 2026 All rights reserved</Text>
                 </View>
             </ScrollView>

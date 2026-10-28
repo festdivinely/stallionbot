@@ -70,6 +70,12 @@
         "projectId": "2f365ef3-0d67-4f4c-8454-ad3a71309e5a"
       }
     },
-    "owner": "fdivinely"
+    "owner": "fdivinely",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/2f365ef3-0d67-4f4c-8454-ad3a71309e5a"
+    }
   }
 }

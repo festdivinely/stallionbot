@@ -8,7 +8,7 @@
 //                  risk checks (server/src/risk) first.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, StyleSheet, Alert, ActivityIndicator, ScrollView, AppState } from 'react-native';
-import { useIsFocused } from 'expo-router';
+import { useIsFocused, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../store/themeStore';
 import { FONTS } from '../../constants/fonts';
@@ -156,6 +156,9 @@ function buildRequest(symbol: string, t: TradeType, s: Settings, side: TradeType
 
 export default function OptionsTrading() {
     const { colors } = useThemeStore();
+    // Two modes: normal trading (Deriv → Options), or Split Money (opened from the Split Money
+    // screen with ?split=1), where every trade comes out of a pot
+    const splitMode = useLocalSearchParams<{ split?: string }>().split === '1';
     const assets = useAssets();
     const allAssets = useMemo(() => assets.data?.flatMap((c) => c.groups.flatMap((g) => g.assets)) ?? [], [assets.data]);
 
@@ -269,9 +272,9 @@ export default function OptionsTrading() {
         ? [...trades.data.open, ...trades.data.recent].filter((t) => t.contractId !== shownId).sort((a, b) => b.purchaseTime - a.purchaseTime)
         : [];
 
-    // Split Money strategy (when it's on): every trade comes out of the chosen pot. The server checks
-    // again before buying; this only explains the limits up front.
-    const strategy = trades.data?.strategy ?? null;
+    // Split Money mode only: every trade comes out of the chosen pot. The server checks again before
+    // buying; this only explains the limits up front. Normal mode ignores the strategy completely.
+    const strategy = splitMode ? (trades.data?.strategy ?? null) : null;
     const [potId, setPotId] = useState<string | null>(lastPotId);
     useEffect(() => {
         lastPotId = potId;
@@ -282,11 +285,13 @@ export default function OptionsTrading() {
         setPotId([...strategy.pots].sort((a, b) => a.layer - b.layer).find((p) => !p.locked)?.id ?? null);
     }, [strategy, potId]);
     const pot = strategy?.pots.find((p) => p.id === potId);
-    const potProblem = !strategy
+    const potProblem = !splitMode
         ? null
-        : strategy.pause
-          ? `Split Money is paused: ${strategy.pause.text}`
-          : !pot
+        : !strategy
+          ? 'Set up your pots on the Split Money screen first.'
+          : !strategy.active
+            ? `Split Money is off${strategy.offReason ? `: ${strategy.offReason.text}` : '. Turn it on in Manage.'}`
+            : !pot
             ? 'Every pot is locked. Lend money to one on the Split Money screen.'
             : pot.locked
               ? `${pot.label} is locked. Pick another pot, or lend it money.`
@@ -327,7 +332,8 @@ export default function OptionsTrading() {
             if (!confirmed) return;
         }
         setBuying(side.contractType);
-        const result = await placeTrade(buildRequest(symbol, tradeType, settings, side), mode, strategy && potId ? potId : undefined);
+        // Only Split Money mode sends a pot; normal trades never do
+        const result = await placeTrade(buildRequest(symbol, tradeType, settings, side), mode, splitMode && potId ? potId : undefined);
         setBuying(null);
         if (result.ok && result.trade) {
             setFlash({
@@ -358,7 +364,11 @@ export default function OptionsTrading() {
 
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
-            <BackHeader title="Options" subtitle={`Deriv · ${isReal ? 'Real' : 'Demo'} account`} right={<AccountSwitch compact />} />
+            <BackHeader
+                title={splitMode ? 'Split Money' : 'Options'}
+                subtitle={`${splitMode ? 'Trading from your pots' : 'Deriv'} · ${isReal ? 'Real' : 'Demo'} account`}
+                right={<AccountSwitch compact />}
+            />
             <KeyboardSafeScroll contentContainerStyle={styles.scroll}>
                 {/* Impossible to miss when trading with real money */}
                 {isReal && (

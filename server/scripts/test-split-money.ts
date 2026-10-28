@@ -33,14 +33,14 @@ await check("set up 10 × $10 + $100 + $1,000", async () => {
   assert.equal(pot("s1")!.balance, 10);
   assert.equal(pot("b2")!.balance, 1000);
 });
-await check("no pot needed while the strategy is off", () => {
-  assert.equal(split.reservePotTrade(U, "demo", undefined, 5).ok, true);
+await check("a pot trade is refused while the strategy is off", () => {
+  assert.equal(split.reservePotTrade(U, "demo", "s1", 1).ok, false);
 });
 await check("start the strategy", async () => {
   assert.equal((await split.setActive(U, "demo", true, 5000)).ok, true);
 });
-await check("a pot is required once it is on", () => {
-  assert.equal(split.reservePotTrade(U, "demo", undefined, 1).ok, false);
+await check("normal trades (no pot) are never limited by Split Money", () => {
+  assert.equal(split.reservePotTrade(U, "demo", undefined, 1000).ok, true);
 });
 await check("a stake above the pot's money is refused", () => {
   assert.equal(split.reservePotTrade(U, "demo", "s1", 10.01).ok, false);
@@ -116,17 +116,25 @@ await check("a due loan is collected automatically", async () => {
   assert.equal(pot("b1")!.owes, 0);
   assert.equal(pot("b2")!.balance, 1000);
 });
-await check("a balance below the pots pauses the strategy", () => {
+await check("a balance below the pots turns the strategy off", () => {
   split.checkDerivBalance("demo", 100);
+  const v = split.viewOf(U, "demo", 100);
+  assert.equal(v.active, false);
+  assert.ok(v.offReason);
   const r = split.reservePotTrade(U, "demo", "s5", 1);
   assert.equal(r.ok, false);
-  assert.match((r as { message: string }).message, /paused/);
+  assert.match((r as { message: string }).message, /off/);
+  assert.equal(split.reservePotTrade(U, "demo", undefined, 1).ok, true); // normal trades still fine
 });
-await check("adjusting shrinks the pots (top bank first) and resumes", async () => {
+await check("it can't be turned on again while underfunded", async () => {
+  assert.equal((await split.setActive(U, "demo", true, 100)).ok, false);
+});
+await check("adjusting shrinks the pots (top bank first) and turns it back on", async () => {
   assert.equal((await split.adjustToBalance(U, "demo", 1100)).ok, true);
   const v = split.viewOf(U, "demo", 1100);
   assert.equal(v.held, 1100);
-  assert.equal(v.pause, null);
+  assert.equal(v.offReason, null);
+  assert.equal(v.active, true);
   assert.equal(split.reservePotTrade(U, "demo", "s5", 1).ok, true);
   split.releasePotTrade(U, "demo", "s5");
 });

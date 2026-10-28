@@ -47,7 +47,8 @@ export type SplitState =
           exists: true;
           settings: SplitSettings;
           active: boolean;
-          pause: { kind: string; text: string } | null;
+          /** Why the server turned it off (e.g. balance too low), until it is turned on again */
+          offReason: { kind: string; text: string } | null;
           minStake: number;
           derivBalance: number | null;
           held: number;
@@ -59,9 +60,10 @@ export type SplitState =
           history: { at: number; text: string }[];
       };
 
-/** The short pot list that comes with the Options screen's live trade updates. */
+/** The short pot list that comes with the live trade updates (null: Split Money not set up). */
 export interface StrategySummary {
-    pause: { kind: string; text: string } | null;
+    active: boolean;
+    offReason: { kind: string; text: string } | null;
     dailyRoom: number;
     pots: Pick<Pot, 'id' | 'label' | 'layer' | 'balance' | 'locked' | 'maxStake' | 'owes'>[];
 }

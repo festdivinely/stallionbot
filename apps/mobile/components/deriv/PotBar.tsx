@@ -1,5 +1,6 @@
-// Options screen, while the Split Money strategy is on: one chip per pot (sections first, then the
-// banks) with its money; tap one to trade from it. Locked pots show a lock and can't be picked.
+// The trading screen in Split Money mode (opened from the Split Money screen): one chip per pot
+// (sections first, then the banks) with its money; tap one to trade from it. Locked pots show a
+// lock and can't be picked. When the strategy is off, it says why.
 import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,14 +25,17 @@ export default function PotBar({ strategy, selected, onSelect }: Props) {
             <View style={styles.header}>
                 <Ionicons name="grid-outline" size={16} color={colors.primary} />
                 <Text style={[styles.title, { color: colors.textPrimary }]}>Split Money: trade from</Text>
-                <TouchableOpacity onPress={() => router.push('/deriv/split-money')} hitSlop={8}>
+                {/* This screen is opened from the Split Money screen, so going back returns there */}
+                <TouchableOpacity onPress={() => (router.canGoBack() ? router.back() : router.replace('/deriv/split-money'))} hitSlop={8}>
                     <Text style={[styles.link, { color: colors.primary }]}>Manage</Text>
                 </TouchableOpacity>
             </View>
-            {strategy.pause && (
+            {!strategy.active && (
                 <View style={[styles.pause, { backgroundColor: withAlpha(PRICE_DOWN, 0.12) }]}>
                     <Ionicons name="warning" size={16} color={PRICE_DOWN} />
-                    <Text style={[styles.pauseText, { color: PRICE_DOWN }]}>Paused: {strategy.pause.text}</Text>
+                    <Text style={[styles.pauseText, { color: PRICE_DOWN }]}>
+                        Split Money is off{strategy.offReason ? `: ${strategy.offReason.text}` : '. Turn it on in Manage.'}
+                    </Text>
                 </View>
             )}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>

@@ -16,6 +16,7 @@ import {
   Poppins_700Bold,
 } from '@expo-google-fonts/poppins';
 import { installThemedAlert, ThemedAlertHost } from '../components/ThemedAlert';
+import { useAppUpdates } from '../hooks/useAppUpdates';
 
 // Every Alert.alert(...) in the app now shows the themed dialog instead of the plain system box
 installThemedAlert();
@@ -24,6 +25,9 @@ export default function RootLayout() {
   const { isAuthenticated, initializeAuth } = useAuthStore();
   const router = useRouter();
   const segments = useSegments();
+
+  // New versions arrive over the air (hooks/useAppUpdates.ts): no new APK needed for most changes
+  useAppUpdates();
 
   // True once the saved login has been checked. It lives in the auth store (not in this
   // component), so the two always start over together: when the login code is reloaded during

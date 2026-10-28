@@ -14,9 +14,12 @@
 //    automatically (every minute) from whatever the borrower has, until paid in full.
 //  - A pot that just ran out can't borrow for coolDownMin minutes (no chasing losses).
 //  - Daily loss cap: today's strategy losses + stakes still at risk may not pass dailyLossCap.
-//  - If the real Deriv balance drops below what the pots hold (e.g. trading on deriv.com), the
-//    strategy pauses until the pots are adjusted down or the balance is back.
-// These checks come IN ADDITION to server/src/risk/index.ts, never instead of it.
+//  - If the real Deriv balance drops below what the pots hold (normal trades, deriv.com...), the
+//    strategy is TURNED OFF, with the reason kept for the app to show. Adjusting the pots down to
+//    the balance turns it back on.
+// Only trades sent WITH a pot (from the Split Money trading screen) follow these rules; normal
+// trades (the plain Options screen) don't. These checks come IN ADDITION to
+// server/src/risk/index.ts, never instead of it.
 //
 // The state lives in memory (all changes are instant and in one place, so there are no races) and
 // is saved to MongoDB after every change (splitMoneyStore.ts), so a server restart loses nothing.
@@ -79,7 +82,8 @@ interface OpenTrade {
 interface State {
   settings: SplitSettings;
   active: boolean;
-  pause: { kind: "balance"; text: string } | null;
+  /** Why the server turned the strategy off (shown in the app until it's turned on again) */
+  offReason: { kind: "balance"; text: string } | null;
   pots: Pot[];
   loans: Loan[];
   open: OpenTrade[];
@@ -143,7 +147,7 @@ export async function ensureLoaded(userId: string, type: AccountType): Promise<S
       key,
       store.loadState<State>(userId, type)
         .then((s) => {
-          if (!states.has(key)) states.set(key, s);
+          if (!states.has(key)) states.set(key, upgrade(s));
           return states.get(key)!;
         })
         .finally(() => loading.delete(key))
@@ -153,6 +157,18 @@ export async function ensureLoaded(userId: string, type: AccountType): Promise<S
 }
 
 const get = (userId: string, type: AccountType) => states.get(keyOf(userId, type)) ?? null;
+
+/** States saved by older versions: "pause" became "offReason" (and a paused strategy is now off). */
+function upgrade(s: State | null): State | null {
+  if (!s) return s;
+  const old = s as State & { pause?: State["offReason"] };
+  if (old.offReason === undefined) {
+    old.offReason = old.pause ?? null;
+    if (old.pause) old.active = false;
+  }
+  delete old.pause;
+  return old;
+}
 
 function newDay(s: State): void {
   if (s.day !== today()) {
@@ -201,7 +217,7 @@ export function viewOf(userId: string, type: AccountType, derivBalance: number |
     exists: true as const,
     settings: s.settings,
     active: s.active,
-    pause: s.pause,
+    offReason: s.offReason,
     minStake: MIN_STAKE,
     derivBalance,
     held: held(s),
@@ -226,13 +242,14 @@ export function viewOf(userId: string, type: AccountType, derivBalance: number |
   };
 }
 
-/** The short version for the Options screen's live updates. */
+/** The short version for the Split Money trading screen's live updates (null: not set up). */
 export function summaryOf(userId: string, type: AccountType) {
   const s = get(userId, type);
-  if (!s || !s.active) return null;
+  if (!s) return null;
   newDay(s);
   return {
-    pause: s.pause,
+    active: s.active,
+    offReason: s.offReason,
     dailyRoom: dailyRoom(s),
     pots: s.pots.map((p) => ({ id: p.id, label: label(s, p.id), layer: p.layer, balance: r2(p.balance), locked: p.balance < MIN_STAKE, maxStake: maxStakeOf(p), owes: owedBy(s, p.id) })),
   };
@@ -279,7 +296,7 @@ export async function saveSettings(userId: string, type: AccountType, settings: 
     if (derivBalance !== null && derivBalance < need) {
       return { ok: false, message: `These pots need ${money(need)} but your balance is ${money(derivBalance)}. Use smaller amounts.` };
     }
-    const fresh: State = { settings, active: false, pause: null, pots: buildPots(settings), loans: [], open: [], day: today(), dayNet: 0, history: [], nextLoanId: 1 };
+    const fresh: State = { settings, active: false, offReason: null, pots: buildPots(settings), loans: [], open: [], day: today(), dayNet: 0, history: [], nextLoanId: 1 };
     log(fresh, `Set up: ${settings.sections} sections of ${money(settings.sectionAmount)}${settings.banks.length ? `, banks ${settings.banks.map(money).join(" → ")}` : ""} (${money(need)} in total).`);
     states.set(key, fresh);
     changed(userId, type);
@@ -319,8 +336,8 @@ export async function setActive(userId: string, type: AccountType, active: boole
   }
   if (!active && s.open.length) return { ok: false, message: "Wait for your open trades to finish before turning the strategy off." };
   s.active = active;
-  if (active) s.pause = null;
-  log(s, active ? "Strategy started: every trade now uses a pot." : "Strategy turned off.");
+  if (active) s.offReason = null;
+  log(s, active ? "Strategy turned on: trades from the Split Money screen use a pot." : "Strategy turned off.");
   changed(userId, type);
   return { ok: true };
 }
@@ -337,21 +354,21 @@ export async function resetStrategy(userId: string, type: AccountType): Promise<
 
 // ---------- Trading ----------
 
-/** Whether the strategy is on for this user and account (then every trade needs a pot). */
+/** Whether the strategy is on for this user and account. */
 export const isActive = (userId: string, type: AccountType) => !!get(userId, type)?.active;
 
 /**
  * Checks a trade against its pot and, if allowed, takes the stake out of the pot at once (so two
  * quick taps can't both spend the same money). Call confirmPotTrade() after Deriv bought it, or
- * releasePotTrade() if the buy failed.
+ * releasePotTrade() if the buy failed. A trade without a pot is a normal trade: nothing to check.
  */
 export function reservePotTrade(userId: string, type: AccountType, potId: string | undefined, stake: number): Result {
+  if (!potId) return { ok: true };
   const s = get(userId, type);
-  if (!s || !s.active) {
-    return potId ? { ok: false, message: "The Split Money strategy is off. Turn it on, or trade without a pot." } : { ok: true };
+  if (!s) return { ok: false, message: "Set up your Split Money pots first." };
+  if (!s.active) {
+    return { ok: false, message: s.offReason ? `Split Money is off: ${s.offReason.text}` : "Split Money is off. Turn it on in the Split Money screen." };
   }
-  if (!potId) return { ok: false, message: "Split Money is on: pick the pot to trade from." };
-  if (s.pause) return { ok: false, message: `Split Money is paused: ${s.pause.text}` };
   const pot = s.pots.find((p) => p.id === potId);
   if (!pot) return { ok: false, message: "That pot doesn't exist any more. Pick another one." };
   const name = label(s, potId);
@@ -484,24 +501,28 @@ function collectDue(s: State, now: number): boolean {
 // ---------- Deriv balance check ----------
 
 /**
- * Called with the live Deriv balance: pauses the strategy when the account holds less than the
- * pots say (e.g. money lost or withdrawn on deriv.com).
+ * Called with the live Deriv balance: turns the strategy OFF when the account holds less than the
+ * pots say (money lost in normal trades, on deriv.com, or withdrawn), so it can't run underfunded.
  */
 export function checkDerivBalance(type: AccountType, derivBalance: number): void {
   for (const [key, s] of states) {
     if (!s || !s.active || !key.startsWith(`${type}:`)) continue;
     const userId = key.slice(type.length + 1);
     const need = held(s);
-    if (derivBalance + 0.005 < need && !s.pause) {
-      s.pause = { kind: "balance", text: `your ${type} balance (${money(derivBalance)}) is below what the pots hold (${money(need)}). Money may have been used outside this app. Adjust the pots to continue.` };
-      log(s, `Paused: balance ${money(derivBalance)} is below the pots' ${money(need)}.`);
-      console.warn(`[split] paused for ${key}: balance ${derivBalance} < pots ${need}`);
+    if (derivBalance + 0.005 < need) {
+      s.active = false;
+      s.offReason = {
+        kind: "balance",
+        text: `your ${type} balance (${money(derivBalance)}) is below what the pots need (${money(need)}). Adjust the pots to your balance to turn it back on.`,
+      };
+      log(s, `Turned off: balance ${money(derivBalance)} is below the pots' ${money(need)}.`);
+      console.warn(`[split] turned off for ${key}: balance ${derivBalance} < pots ${need}`);
       changed(userId, type);
     }
   }
 }
 
-/** Shrinks the pots to fit the Deriv balance (top bank first) and resumes. */
+/** Shrinks the pots to fit the Deriv balance (top bank first) and turns the strategy back on. */
 export async function adjustToBalance(userId: string, type: AccountType, derivBalance: number | null): Promise<Result> {
   const s = await ensureLoaded(userId, type);
   if (!s) return { ok: false, message: "Set up your pots first." };
@@ -517,8 +538,9 @@ export async function adjustToBalance(userId: string, type: AccountType, derivBa
     }
     log(s, `Pots adjusted down to match the balance of ${money(derivBalance)}.`);
   }
-  s.pause = null;
-  log(s, "Resumed.");
+  s.offReason = null;
+  s.active = true;
+  log(s, "Turned back on.");
   changed(userId, type);
   return { ok: true };
 }
@@ -540,7 +562,7 @@ async function tick(): Promise<void> {
     try {
       for (const row of await store.loadAllStates<State>()) {
         const key = keyOf(row.userId, row.account);
-        if (!states.has(key)) states.set(key, row.data);
+        if (!states.has(key)) states.set(key, upgrade(row.data));
         const s = states.get(key);
         // A buy that never got its contract id was interrupted: give the stake back
         if (s) for (const o of s.open.filter((x) => x.contractId === 0)) releasePotTrade(row.userId, row.account, o.potId);

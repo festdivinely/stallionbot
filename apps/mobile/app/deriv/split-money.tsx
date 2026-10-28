@@ -62,9 +62,11 @@ export default function SplitMoneyScreen() {
                         <Card>
                             <View style={styles.rowBetween}>
                                 <View style={{ flex: 1 }}>
-                                    <Text style={[styles.h2, { color: colors.textPrimary }]}>{s.active ? (s.pause ? 'Paused' : 'Strategy is on') : 'Strategy is off'}</Text>
+                                    <Text style={[styles.h2, { color: colors.textPrimary }]}>{s.active ? 'Strategy is on' : 'Strategy is off'}</Text>
                                     <Text style={[styles.small, { color: colors.textSecondary }]}>
-                                        {s.active ? 'Every trade on the Options screen uses a pot.' : 'Turn it on to trade only from your pots.'}
+                                        {s.active
+                                            ? 'Trade from your pots with the button below. The normal Options screen is not affected.'
+                                            : 'Turn it on to trade from your pots.'}
                                     </Text>
                                 </View>
                                 <Button
@@ -74,17 +76,17 @@ export default function SplitMoneyScreen() {
                                     onPress={() => run(s.active ? split.stop() : split.start())}
                                 />
                             </View>
-                            {s.pause && (
+                            {!s.active && s.offReason && (
                                 <View style={[styles.warning, { backgroundColor: withAlpha(PRICE_DOWN, 0.12) }]}>
                                     <Ionicons name="warning" size={18} color={PRICE_DOWN} />
                                     <View style={{ flex: 1, gap: 8 }}>
-                                        <Text style={[styles.small, { color: PRICE_DOWN }]}>Paused: {s.pause.text}</Text>
+                                        <Text style={[styles.small, { color: PRICE_DOWN }]}>Turned off: {s.offReason.text}</Text>
                                         <Button
-                                            label="Adjust pots to my balance"
+                                            label="Adjust pots and turn back on"
                                             tone="danger"
                                             busy={split.busy}
                                             onPress={() =>
-                                                Alert.alert('Adjust the pots?', 'The pots shrink to match your real balance, taking from the top bank first. Then trading resumes.', [
+                                                Alert.alert('Adjust the pots?', 'The pots shrink to match your real balance, taking from the top bank first. Then the strategy turns back on.', [
                                                     { text: 'Cancel', style: 'cancel' },
                                                     { text: 'Adjust', onPress: () => run(split.adjust()) },
                                                 ])
@@ -102,7 +104,7 @@ export default function SplitMoneyScreen() {
                                 Deriv balance {s.derivBalance === null ? '—' : usd(s.derivBalance)} · today's loss cap leaves room for {usd(s.dailyRoom)}
                             </Text>
                             {s.active && (
-                                <Button label="Trade from my pots" icon="arrow-forward" onPress={() => router.push('/deriv/options')} style={{ marginTop: 12 }} />
+                                <Button label="Trade from my pots" icon="arrow-forward" onPress={() => router.push({ pathname: '/deriv/options', params: { split: '1' } })} style={{ marginTop: 12 }} />
                             )}
                         </Card>
 
@@ -208,7 +210,8 @@ function Intro() {
         'An empty pot is locked: switch to another pot, or get a loan for it.',
         'Banks sit above the pots. A bank lends only to the layer just below it; sections can lend to each other.',
         'Every loan must be paid back. When it is due it is collected automatically.',
-        'If your real balance drops below the pots (e.g. trading on deriv.com), the strategy pauses.',
+        'You trade from the pots with "Trade from my pots". The normal Options screen stays normal trading.',
+        'If your balance can no longer cover the pots (e.g. after normal trades or deriv.com), the strategy turns off.',
     ];
     return (
         <Card>
