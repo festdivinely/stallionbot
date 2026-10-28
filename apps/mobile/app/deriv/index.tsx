@@ -11,7 +11,8 @@ import { DERIV_STRATEGIES } from '../../constants/derivStrategies';
 import { useLiveTicks } from '../../hooks/useLiveTicks';
 import BackHeader from '../../components/BackHeader';
 import LiveTickerCard from '../../components/welcome/LiveTickerCard';
-import { getWelcomePalette, withAlpha } from '../../components/welcome/welcomePalette';
+import AccountSwitch from '../../components/deriv/AccountSwitch';
+import { getWelcomePalette } from '../../components/welcome/welcomePalette';
 
 type Mode = 'build' | 'manual';
 
@@ -56,17 +57,11 @@ export default function DerivHub() {
 
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
-            <BackHeader
-                title="Deriv"
-                subtitle="Synthetic indices"
-                right={
-                    <View style={[styles.demoPill, { backgroundColor: withAlpha(colors.primary, 0.14) }]}>
-                        <Text style={[styles.demoText, { color: colors.primary }]}>Demo</Text>
-                    </View>
-                }
-            />
+            <BackHeader title="Deriv" subtitle="Your Deriv accounts" />
 
             <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false}>
+                {/* Demo / Real, with balances: the Options screen trades on the account picked here */}
+                <AccountSwitch />
                 {/* Live markets */}
                 <View style={styles.tickers}>
                     {series.slice(0, 2).map((s) => (
@@ -189,7 +184,7 @@ export default function DerivHub() {
                 <View style={styles.note}>
                     <Ionicons name="shield-checkmark-outline" size={16} color={colors.textSecondary} />
                     <Text style={[styles.noteText, { color: colors.textSecondary }]}>
-                        Demo account only. Every trade will pass the server's risk checks before it is placed.
+                        Trades use the account picked above (Demo or Real). Every trade passes the server's risk checks before it is placed.
                     </Text>
                 </View>
             </ScrollView>
@@ -200,8 +195,6 @@ export default function DerivHub() {
 const styles = StyleSheet.create({
     container: { flex: 1 },
     scroll: { paddingHorizontal: 16 },
-    demoPill: { borderRadius: 12, paddingHorizontal: 12, paddingVertical: 5 },
-    demoText: { fontSize: 13, fontFamily: FONTS.semibold },
     tickers: { flexDirection: 'row', gap: 10, marginBottom: 16, minHeight: 40 },
     muted: { fontSize: 14, fontFamily: FONTS.regular },
     segment: { flexDirection: 'row', borderRadius: 16, borderWidth: 1, padding: 4, marginBottom: 16 },

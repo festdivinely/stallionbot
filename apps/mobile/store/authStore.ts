@@ -85,6 +85,8 @@ type AuthState = {
   user: any;
   isLoading: boolean;
   isAuthenticated: boolean;
+  /** True once the saved login has been checked at start-up (set by app/_layout.tsx). */
+  authChecked: boolean;
   accessToken: string | null;
   refreshToken: string | null;
   fingerprint: string | null;
@@ -126,6 +128,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isLoading: false,
   isAuthenticated: false,
+  authChecked: false,
   accessToken: null,
   refreshToken: null,
   fingerprint: null,

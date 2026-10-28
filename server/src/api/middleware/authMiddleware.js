@@ -84,6 +84,46 @@ export const protect = asyncHandler(async (req, res, next) => {
     next();
 });
 
+// ---------- Faster check for busy routes (market data, quotes, trading) ----------
+// Same token check as `protect` on every request (signature, issuer, audience, expiry). Only the
+// database lookup "does this user exist and is the account active?" is remembered for
+// USER_CACHE_MS, because the app calls these routes several times a second and each database trip
+// to MongoDB Atlas costs a noticeable fraction of a second. A blocked/deleted account is refused
+// within USER_CACHE_MS; the login token itself still expires as usual (15 minutes).
+const USER_CACHE_MS = 30_000;
+const userCache = new Map(); // userId -> { user, at }
+
+export const protectFast = asyncHandler(async (req, res, next) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ message: "Not authorized, no token provided" });
+
+    let decoded;
+    try {
+        decoded = jwt.verify(token, publicKey, { algorithms: ["RS256"], issuer: ISSUER, audience: AUDIENCE });
+    } catch (error) {
+        if (error.name === "TokenExpiredError") {
+            return res.status(401).json({ message: "Token expired, please refresh or login again" });
+        }
+        console.error("Token verification failed", { error: error.message });
+        return res.status(401).json({ message: "Not authorized, token verification failed" });
+    }
+
+    const cached = userCache.get(decoded.userId);
+    let user = cached && Date.now() - cached.at < USER_CACHE_MS ? cached.user : null;
+    if (!user) {
+        user = await Users.findById(decoded.userId).select("-password -sessions -emailVerifyToken");
+        if (!user) {
+            userCache.delete(decoded.userId);
+            return res.status(401).json({ message: "User not found" });
+        }
+        userCache.set(decoded.userId, { user, at: Date.now() });
+    }
+    if (!user.isActive) return res.status(403).json({ message: "User account is inactive" });
+
+    req.user = user;
+    next();
+});
+
 export const requireRole = (roles) => {
     return asyncHandler(async (req, res, next) => {
         if (!req.user || !roles.includes(req.user.role)) {

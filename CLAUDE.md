@@ -15,7 +15,7 @@ React Native (Expo) mobile app + Node.js backend that trades on the Deriv API. T
 
 ## Rules
 - Use ONLY the new Deriv API docs at developers.deriv.com: REST for OTP, WebSocket for trading. Don't use legacy API docs or examples.
-- DEMO account only, until the user explicitly says otherwise.
+- Demo and real accounts (the user approved real mode on 2026-10-27). The app always starts in Demo; real money is only used when the user picks Real in the app, real trades are confirmed one by one, and they have their own stricter risk limits. Never place real trades yourself.
 - Never hardcode tokens or App IDs. Read them from `.env`, and keep `.env` in `.gitignore`.
 - Every Deriv connection must send pings and reconnect automatically.
 - Every trade must pass through `server/src/risk` before it executes. Nothing may bypass it.

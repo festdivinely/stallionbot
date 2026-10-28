@@ -234,12 +234,13 @@ api.interceptors.response.use(
 
     // Don't log 401 errors for logout endpoint
     if (!(error.response?.status === 401 && url.includes('/api/auth/logout'))) {
-      logger.error("API request failed", {
-        status: error.response?.status,
-        url,
-        method: originalRequest?.method,
-        message: errorMessage,
-      });
+      const details = { status: error.response?.status, url, method: originalRequest?.method, message: errorMessage };
+      // The screens handle failed requests themselves (a message, "Not available", a retry), so most
+      // failures are only worth a quiet warning: no connection, server restarting (502/503/504),
+      // or the server saying no (4xx, e.g. a trade refused by the risk checks). Only a crash on the
+      // server (500) shows as a red error in development.
+      if (error.response?.status === 500) logger.error("API request failed", details);
+      else console.warn("API request failed", details);
     }
 
     return Promise.reject(error);

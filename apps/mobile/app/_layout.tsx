@@ -1,6 +1,6 @@
 // app/_layout.tsx
 import { Stack, useRouter, useSegments } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -25,9 +25,12 @@ export default function RootLayout() {
   const router = useRouter();
   const segments = useSegments();
 
-  // True once the saved login has been checked. We use our own flag instead of the store's
-  // isLoading, because isLoading also turns on during login/sign-up requests.
-  const [isReady, setIsReady] = useState(false);
+  // True once the saved login has been checked. It lives in the auth store (not in this
+  // component), so the two always start over together: when the login code is reloaded during
+  // development, the store resets to "logged out" and a flag kept here would have said "already
+  // checked", sending a logged-in user to the login screen.
+  const isReady = useAuthStore((s) => s.authChecked);
+  const setIsReady = (ready: boolean) => useAuthStore.setState({ authChecked: ready });
 
   // App font (see constants/fonts.ts). If loading fails we carry on with the system font.
   const [fontsLoaded, fontError] = useFonts({ Poppins_400Regular, Poppins_500Medium, Poppins_600SemiBold, Poppins_700Bold });
@@ -48,8 +51,9 @@ export default function RootLayout() {
       }
     };
 
-    init();
-  }, []);
+    // Also re-runs if the store was reset by a code reload (authChecked back to false)
+    if (!useAuthStore.getState().authChecked) init();
+  }, [isReady]);
 
   // This is the ONLY place that guards routes, so screens don't fight over navigation.
   // It only steps in when you are somewhere you shouldn't be; the login screens still

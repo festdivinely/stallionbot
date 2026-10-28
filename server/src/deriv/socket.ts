@@ -3,7 +3,7 @@
 // - treats 60s of silence as a dead connection
 // - reconnects automatically with backoff, using a fresh OTP each time
 
-import { getDemoAccountId, getWebSocketUrl } from "./rest.js";
+import { getAccountId, getWebSocketUrl, type AccountType } from "./rest.js";
 
 const PING_INTERVAL_MS = 30_000;
 const SILENCE_TIMEOUT_MS = 60_000;
@@ -32,6 +32,9 @@ export class DerivSocket {
   private readonly messageHandlers: MessageHandler[] = [];
   private readonly openHandlers: OpenHandler[] = [];
 
+  /** Which account this connection is for. Demo unless real is asked for explicitly. */
+  constructor(readonly accountType: AccountType = "demo") {}
+
   /** Called for every message from Deriv. */
   onMessage(handler: MessageHandler): void {
     this.messageHandlers.push(handler);
@@ -45,8 +48,8 @@ export class DerivSocket {
   async connect(): Promise<void> {
     this.stopped = false;
     try {
-      this.accountId ??= await getDemoAccountId();
-      const url = await getWebSocketUrl(this.accountId);
+      this.accountId ??= await getAccountId(this.accountType);
+      const url = await getWebSocketUrl(this.accountId, this.accountType);
       this.open(url);
     } catch (err) {
       console.error(`[deriv] connect failed: ${(err as Error).message}`);
@@ -77,7 +80,7 @@ export class DerivSocket {
     this.ws = ws;
 
     ws.addEventListener("open", () => {
-      console.log(`[deriv] connected (demo account ${this.accountId})`);
+      console.log(`[deriv] connected (${this.accountType} account ${this.accountId})`);
       this.attempt = 0;
       this.startTimers();
       for (const handler of this.openHandlers) handler();

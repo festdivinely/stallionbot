@@ -339,6 +339,8 @@ export interface QuoteParams {
   basis?: "stake" | "payout";
   duration?: number;
   durationUnit?: DurationUnit;
+  /** "End time" instead of a duration: when the contract ends, as epoch seconds. */
+  dateExpiry?: number;
   barrier?: string;
   barrier2?: string;
   multiplier?: number;
@@ -368,7 +370,9 @@ export async function getQuote(p: QuoteParams): Promise<Quote> {
     amount: p.amount,
     basis: p.basis ?? "stake",
   };
-  if (p.duration !== undefined) {
+  if (p.dateExpiry !== undefined) {
+    payload.date_expiry = p.dateExpiry;
+  } else if (p.duration !== undefined) {
     payload.duration = p.duration;
     payload.duration_unit = p.durationUnit ?? "t";
   }

@@ -1,5 +1,5 @@
 // Deriv REST API (developers.deriv.com): list accounts and get a one-time
-// password (OTP) URL for opening the trading WebSocket.
+// password (OTP) URL for opening the trading WebSocket of a demo or real account.
 
 import { config } from "../config.js";
 
@@ -42,33 +42,53 @@ export function getAccounts(): Promise<DerivAccount[]> {
   return request<DerivAccount[]>("GET", "/accounts");
 }
 
-/** Returns the demo account to use. Never returns a real-money account. */
-export async function getDemoAccountId(): Promise<string> {
-  const accounts = await getAccounts();
-  const demo = accounts.filter((a) => a.account_type === "demo" && a.status === "active");
+export type AccountType = "demo" | "real";
 
-  if (config.accountId) {
-    if (!demo.some((a) => a.account_id === config.accountId)) {
-      throw new Error(`DERIV_ACCOUNT_ID ${config.accountId} is not an active demo account`);
+/** Thrown when the token has no active account of the requested type (e.g. no real account yet). */
+export class NoAccountError extends Error {
+  readonly code = "NO_ACCOUNT";
+}
+
+/**
+ * The account of the given type to use: a demo account only ever for "demo", a real one only
+ * ever for "real". DERIV_ACCOUNT_ID / DERIV_REAL_ACCOUNT_ID can pin a specific one.
+ */
+export async function getAccountId(type: AccountType): Promise<string> {
+  return pickAccount(await getAccounts(), type).account_id;
+}
+
+/** Same choice as getAccountId(), from an account list the caller already has (no web request). */
+export function pickAccount(accounts: DerivAccount[], type: AccountType): DerivAccount {
+  const ofType = accounts.filter((a) => a.account_type === type && a.status === "active");
+  const pinned = type === "demo" ? config.accountId : config.realAccountId;
+
+  if (pinned) {
+    const match = ofType.find((a) => a.account_id === pinned);
+    if (!match) {
+      throw new Error(`${type === "demo" ? "DERIV_ACCOUNT_ID" : "DERIV_REAL_ACCOUNT_ID"} ${pinned} is not an active ${type} account`);
     }
-    return config.accountId;
+    return match;
   }
 
-  const first = demo[0];
-  if (!first) throw new Error("No active demo account found on this token");
-  return first.account_id;
+  const first = ofType[0];
+  if (!first) throw new NoAccountError(`No active ${type} account found on this token`);
+  return first;
 }
+
+/** The demo account (market data and demo trading). */
+export const getDemoAccountId = () => getAccountId("demo");
 
 /**
  * Asks Deriv for a fresh WebSocket URL with an OTP in it.
  * The OTP is single-use and expires after 120 seconds, so call this right before connecting.
  */
-export async function getWebSocketUrl(accountId: string): Promise<string> {
+export async function getWebSocketUrl(accountId: string, type: AccountType): Promise<string> {
   const { url } = await request<{ url: string }>("POST", `/accounts/${encodeURIComponent(accountId)}/otp`);
 
-  // Safety net: refuse anything that is not the demo endpoint.
-  if (new URL(url).pathname !== "/trading/v1/options/ws/demo") {
-    throw new Error("OTP URL is not for the demo WebSocket - refusing to connect");
+  // Safety net: the URL must be for exactly the account type that was asked for, so a demo
+  // connection can never end up on a real-money account (or the other way round).
+  if (new URL(url).pathname !== `/trading/v1/options/ws/${type}`) {
+    throw new Error(`OTP URL is not for the ${type} WebSocket - refusing to connect`);
   }
   return url;
 }

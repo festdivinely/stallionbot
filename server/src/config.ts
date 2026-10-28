@@ -9,16 +9,12 @@ function required(name: string): string {
   return value;
 }
 
-const accountType = required("DERIV_ACCOUNT_TYPE");
-if (accountType !== "demo") {
-  // Project rule: DEMO only until the user explicitly says otherwise.
-  throw new Error(`DERIV_ACCOUNT_TYPE must be "demo" (got "${accountType}")`);
-}
-
 export const config = {
   appId: required("DERIV_APP_ID"),
   apiToken: required("DERIV_API_TOKEN"),
-  accountType: "demo" as const,
-  // Optional: pin a specific demo account; otherwise we pick one automatically.
+  // Optional: pin specific accounts; otherwise the first active one of each type is used.
+  // Market data always comes from the demo account. Real trades only happen when the user has
+  // picked Real in the app (the user approved real mode on 2026-10-27; the app starts in Demo).
   accountId: process.env.DERIV_ACCOUNT_ID?.trim() || undefined,
+  realAccountId: process.env.DERIV_REAL_ACCOUNT_ID?.trim() || undefined,
 };

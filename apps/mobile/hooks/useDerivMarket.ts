@@ -1,7 +1,9 @@
 // Deriv options market data from our backend (server/src/market/catalog.ts), which reads it live
 // from Deriv: the asset list, the trade types each asset allows, and price quotes.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import api from '../apis/authApi';
+import type { AccountMode } from '../store/accountStore';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
@@ -63,6 +65,8 @@ export interface QuoteRequest {
     amount: number;
     duration?: number;
     durationUnit?: DurationUnit;
+    /** "End time" instead of a duration (epoch seconds) */
+    dateExpiry?: number;
     barrier?: string;
     barrier2?: string;
     multiplier?: number;
@@ -153,6 +157,153 @@ export async function fetchQuote(req: QuoteRequest): Promise<Quote> {
     } catch (e: any) {
         return { ok: false, message: e.response?.data?.message || 'Could not get a price right now' };
     }
+}
+
+// ---------- Trading (demo account; the server runs every buy through its risk checks) ----------
+
+export interface Trade {
+    contractId: number;
+    symbol: string;
+    contractType: string;
+    longcode: string;
+    buyPrice: number;
+    payout: number;
+    purchaseTime: number;
+    status: 'open' | 'won' | 'lost' | 'sold' | 'cancelled';
+    profit: number;
+    currentSpot?: number;
+    entrySpot?: number;
+    exitSpot?: number;
+    dateExpiry?: number;
+    tickCount?: number;
+    ticksPassed?: number;
+    canSell: boolean;
+    bidPrice?: number;
+    sellPrice?: number;
+    barrier?: number;
+    highBarrier?: number;
+    lowBarrier?: number;
+    dateStart?: number;
+    entrySpotTime?: number;
+    exitSpotTime?: number;
+    /** Decimals Deriv quotes the price with */
+    decimals?: number;
+    /** Every price during the contract, oldest first (epoch seconds, price) */
+    path: { t: number; q: number }[];
+}
+
+export interface TradesState {
+    account: AccountMode;
+    /** false when this account doesn't exist on Deriv yet (e.g. no real account) */
+    available: boolean;
+    balance: { balance: number; currency: string } | null;
+    open: Trade[];
+    recent: Trade[];
+    risk: {
+        limits: { maxStake: number; maxOpen: number; maxTradesPerDay: number; dailyLossLimit: number };
+        tradesToday: number;
+        netProfitToday: number;
+        lossRoomLeft: number;
+    };
+}
+
+/** Buys on the given account (demo or real). The server checks the risk limits first; `message` says why not. */
+export async function placeTrade(req: QuoteRequest, account: AccountMode): Promise<{ ok: boolean; trade?: Trade; message?: string }> {
+    try {
+        const { data } = await api.post(`/api/market/trade?account=${account}`, req);
+        return data;
+    } catch (e: any) {
+        return { ok: false, message: e.response?.data?.message || 'Could not place the trade. Nothing was bought.' };
+    }
+}
+
+/** Closes an open trade now, at the market price. */
+export async function sellTrade(contractId: number, account: AccountMode): Promise<{ ok: boolean; message?: string }> {
+    try {
+        const { data } = await api.post(`/api/market/trades/${contractId}/sell?account=${account}`);
+        return data;
+    } catch (e: any) {
+        return { ok: false, message: e.response?.data?.message || 'Could not sell right now.' };
+    }
+}
+
+export interface AccountsSummary {
+    demo: { available: boolean; balance: { balance: number; currency: string } | null };
+    real: { available: boolean; balance: { balance: number; currency: string } | null };
+}
+
+/** Both Deriv accounts and their balances, refreshed every few seconds while `active`. */
+export function useAccounts(active: boolean, everyMs = 5000) {
+    const [data, setData] = useState<AccountsSummary | null>(null);
+    useEffect(() => {
+        if (!active) return;
+        let cancelled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const load = async () => {
+            if (AppState.currentState === 'active') {
+                try {
+                    const { data: body } = await api.get('/api/market/accounts');
+                    if (!cancelled) setData(body);
+                } catch {
+                    // Keep the last known balances; try again next time
+                }
+            }
+            if (!cancelled) timer = setTimeout(load, everyMs);
+        };
+        load();
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+        };
+    }, [active, everyMs]);
+    return data;
+}
+
+// While a trade is running, refresh this often so every tick shows up quickly
+const LIVE_TRADE_POLL_MS = 700;
+
+/**
+ * One account's balance, open and recent trades, refreshed every `everyMs` while `active` (the
+ * screen is on top and the app is open), and every LIVE_TRADE_POLL_MS while a trade is open.
+ * `refresh()` fetches at once; `addTrade()` shows a just-bought trade right away, before the
+ * next refresh.
+ */
+export function useTrades(active: boolean, account: AccountMode, everyMs = 1500) {
+    const [data, setData] = useState<TradesState | null>(null);
+    const [tick, setTick] = useState(0);
+    const hasOpen = useRef(false);
+    hasOpen.current = !!data?.open.length;
+
+    useEffect(() => {
+        if (!active) return;
+        let cancelled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        // Switching account: don't show the other account's trades while the new ones load
+        setData((d) => (d && d.account !== account ? null : d));
+        const load = async () => {
+            if (AppState.currentState === 'active') {
+                try {
+                    const { data: body } = await api.get(`/api/market/trades?account=${account}`);
+                    if (!cancelled) setData(body);
+                } catch {
+                    // Keep showing the last known state; the next poll tries again
+                }
+            }
+            if (!cancelled) timer = setTimeout(load, hasOpen.current ? LIVE_TRADE_POLL_MS : everyMs);
+        };
+        load();
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+        };
+    }, [active, account, everyMs, tick]);
+
+    const addTrade = (trade: Trade) => {
+        hasOpen.current = true;
+        setData((d) => (d ? { ...d, open: [trade, ...d.open.filter((t) => t.contractId !== trade.contractId)] } : d));
+    };
+
+    return { data, refresh: () => setTick((t) => t + 1), addTrade };
 }
 
 /** Which of Deriv's default barriers applies for a duration unit. */
